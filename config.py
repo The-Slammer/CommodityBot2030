@@ -118,25 +118,25 @@ RSS_FEEDS = [
 
 YOUTUBE_CHANNELS = [
     {
-        "name": "Gulf Intelligence",
-        "channel_id": "https://www.youtube.com/channel/UCa7Xz4oHMke7m2xxq_K1lhg",
-        "source_type": "news_video",
+        "name": "Macro Voices",
+        "channel_id": "UCG7K2qx9bMpHBiAJTHSRrxg",
+        "source_type": "podcast",
         "credibility_tier": 2,
         "topics": ["oil", "natural_gas", "uranium", "macro"],
         # Expected posting window in UTC (hour, 24hr)
         "post_window_utc": (14, 16),
     },
     {
-        "name": "Rule Investment Media",
-        "channel_id": "https://www.youtube.com/channel/UCLReD7YczIpNz-gDIVF1hdQ",
+        "name": "Energy News Beat",
+        "channel_id": "UCaaa_replace_with_real_id",
         "source_type": "news_video",
         "credibility_tier": 2,
         "topics": ["oil", "natural_gas"],
         "post_window_utc": (13, 15),
     },
     {
-        "name": "Uranium Insider",
-        "channel_id": "https://www.youtube.com/channel/UCDmY09g5tiR0ocNXvEnOddg",
+        "name": "Uranium Royalties Channel",
+        "channel_id": "UCbbb_replace_with_real_id",
         "source_type": "company_channel",
         "credibility_tier": 3,
         "topics": ["uranium"],

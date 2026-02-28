@@ -1,5 +1,5 @@
 """
-youtube.py — Polls YouTube channels for new videos and fetches transcripts.
+ingestion/youtube.py — Polls YouTube channels for new videos and fetches transcripts.
 Only runs during each channel's configured posting window to conserve API quota.
 """
 
@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 
-from database import insert_youtube_item, is_video_seen, log_poll
+from db.database import insert_youtube_item, is_video_seen, log_poll
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +25,17 @@ def _get_youtube_client():
 
 
 def _in_posting_window(post_window_utc: tuple[int, int]) -> bool:
+    """
+    Returns True if the current UTC hour falls within the channel's expected
+    posting window. Adds a 2-hour buffer after window end to catch late posts.
+    """
     start_hour, end_hour = post_window_utc
     current_hour = datetime.now(timezone.utc).hour
     return start_hour <= current_hour <= (end_hour + 2)
 
 
 def _fetch_recent_video_ids(youtube, channel_id: str, max_results: int = 5) -> list[dict]:
+    """Get the most recent video IDs and titles from a channel."""
     request = youtube.search().list(
         part="id,snippet",
         channelId=channel_id,
@@ -50,8 +55,14 @@ def _fetch_recent_video_ids(youtube, channel_id: str, max_results: int = 5) -> l
 
 
 def _fetch_transcript(video_id: str) -> str | None:
+    """
+    Fetch the transcript for a video. Returns raw text or None if unavailable.
+    Prefers manually created captions, falls back to auto-generated.
+    """
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
+        transcript_list = YouTubeTranscriptApi.get_transcript(
+            video_id, languages=["en"]
+        )
         return " ".join(chunk["text"] for chunk in transcript_list)
     except (NoTranscriptFound, TranscriptsDisabled) as e:
         logger.warning("No transcript for %s: %s", video_id, e)
@@ -62,6 +73,11 @@ def _fetch_transcript(video_id: str) -> str | None:
 
 
 def poll_channel(channel_config: dict):
+    """
+    Poll a single YouTube channel if within its posting window.
+    Fetches transcripts for new videos and stores them.
+    Returns (items_found, items_new).
+    """
     name = channel_config["name"]
     channel_id = channel_config["channel_id"]
     post_window = channel_config.get("post_window_utc", (0, 23))
@@ -97,7 +113,7 @@ def poll_channel(channel_config: dict):
                 "title": video["title"],
                 "published_at": video["published_at"],
                 "transcript_raw": transcript_raw,
-                "transcript_summary": None,
+                "transcript_summary": None,  # Populated later by triage layer
                 "topics": json.dumps(channel_config.get("topics", [])),
                 "ingested_at": datetime.utcnow().isoformat(),
             })
@@ -114,6 +130,7 @@ def poll_channel(channel_config: dict):
 
 
 def poll_all_channels(channels: list[dict]):
+    """Poll all configured YouTube channels."""
     total_found = 0
     total_new = 0
     for channel in channels:

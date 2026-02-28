@@ -1,5 +1,6 @@
 """
-database.py — SQLite schema and all read/write operations.
+db/database.py — SQLite schema and all read/write operations.
+Single source of truth for persistence.
 """
 
 import sqlite3
@@ -28,6 +29,7 @@ def get_conn():
 
 
 def init_db():
+    """Create tables if they don't exist. Safe to call on every startup."""
     with get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS rss_items (
@@ -35,15 +37,15 @@ def init_db():
                 source_name     TEXT NOT NULL,
                 source_type     TEXT NOT NULL,
                 credibility_tier INTEGER NOT NULL,
-                guid            TEXT UNIQUE NOT NULL,
-                fingerprint     TEXT NOT NULL,
+                guid            TEXT UNIQUE NOT NULL,   -- RSS guid or link, used for dedup
+                fingerprint     TEXT NOT NULL,           -- Hash of title+summary for semantic dedup
                 title           TEXT,
                 url             TEXT,
                 summary         TEXT,
                 published_at    TEXT,
-                topics          TEXT,
+                topics          TEXT,                    -- JSON list e.g. ["oil","natural_gas"]
                 ingested_at     TEXT NOT NULL,
-                processed       INTEGER DEFAULT 0
+                processed       INTEGER DEFAULT 0        -- 0=new, 1=triaged
             );
 
             CREATE TABLE IF NOT EXISTS youtube_items (
@@ -57,7 +59,7 @@ def init_db():
                 published_at    TEXT,
                 transcript_raw  TEXT,
                 transcript_summary TEXT,
-                topics          TEXT,
+                topics          TEXT,                    -- JSON list
                 ingested_at     TEXT NOT NULL,
                 processed       INTEGER DEFAULT 0
             );
@@ -65,11 +67,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS source_poll_log (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_name     TEXT NOT NULL,
-                source_type     TEXT NOT NULL,
+                source_type     TEXT NOT NULL,           -- 'rss' or 'youtube'
                 polled_at       TEXT NOT NULL,
                 items_found     INTEGER DEFAULT 0,
                 items_new       INTEGER DEFAULT 0,
-                error           TEXT
+                error           TEXT                     -- NULL if successful
             );
 
             CREATE INDEX IF NOT EXISTS idx_rss_guid        ON rss_items(guid);
@@ -81,15 +83,22 @@ def init_db():
     logger.info("Database initialized at %s", DB_PATH)
 
 
+# --- RSS ---
+
 def is_rss_item_seen(guid: str) -> bool:
     with get_conn() as conn:
-        row = conn.execute("SELECT 1 FROM rss_items WHERE guid = ?", (guid,)).fetchone()
+        row = conn.execute(
+            "SELECT 1 FROM rss_items WHERE guid = ?", (guid,)
+        ).fetchone()
         return row is not None
 
 
 def is_fingerprint_seen(fingerprint: str) -> bool:
+    """Catch near-duplicate items with the same content but different GUIDs."""
     with get_conn() as conn:
-        row = conn.execute("SELECT 1 FROM rss_items WHERE fingerprint = ?", (fingerprint,)).fetchone()
+        row = conn.execute(
+            "SELECT 1 FROM rss_items WHERE fingerprint = ?", (fingerprint,)
+        ).fetchone()
         return row is not None
 
 
@@ -108,15 +117,21 @@ def insert_rss_item(item: dict):
 def get_unprocessed_rss_items(limit: int = 100) -> list:
     with get_conn() as conn:
         rows = conn.execute("""
-            SELECT * FROM rss_items WHERE processed = 0
-            ORDER BY ingested_at ASC LIMIT ?
+            SELECT * FROM rss_items
+            WHERE processed = 0
+            ORDER BY ingested_at ASC
+            LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
 
 
+# --- YouTube ---
+
 def is_video_seen(video_id: str) -> bool:
     with get_conn() as conn:
-        row = conn.execute("SELECT 1 FROM youtube_items WHERE video_id = ?", (video_id,)).fetchone()
+        row = conn.execute(
+            "SELECT 1 FROM youtube_items WHERE video_id = ?", (video_id,)
+        ).fetchone()
         return row is not None
 
 
@@ -133,6 +148,8 @@ def insert_youtube_item(item: dict):
                  :transcript_summary, :topics, :ingested_at)
         """, item)
 
+
+# --- Poll log ---
 
 def log_poll(source_name: str, source_type: str, items_found: int,
              items_new: int, error: str = None):

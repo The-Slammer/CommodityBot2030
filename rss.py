@@ -1,5 +1,5 @@
 """
-rss.py — Fetches and parses RSS feeds.
+ingestion/rss.py — Fetches and parses RSS feeds.
 No LLM calls here — pure fetch, parse, dedup, store.
 """
 
@@ -9,18 +9,19 @@ from datetime import datetime
 
 import feedparser
 
-from database import (
+from db.database import (
     insert_rss_item,
     is_fingerprint_seen,
     is_rss_item_seen,
     log_poll,
 )
-from fingerprint import make_fingerprint
+from utils.fingerprint import make_fingerprint
 
 logger = logging.getLogger(__name__)
 
 
 def _parse_published(entry) -> str:
+    """Best-effort extraction of published date from a feed entry."""
     if hasattr(entry, "published"):
         return entry.published
     if hasattr(entry, "updated"):
@@ -29,14 +30,20 @@ def _parse_published(entry) -> str:
 
 
 def _get_guid(entry) -> str:
+    """Use the entry's id/guid if available, otherwise fall back to link."""
     if hasattr(entry, "id") and entry.id:
         return entry.id
     if hasattr(entry, "link") and entry.link:
         return entry.link
+    # Last resort — fingerprint as guid (will still be caught by fingerprint dedup)
     return make_fingerprint(entry.get("title", ""), "")
 
 
 def poll_feed(feed_config: dict) -> tuple[int, int]:
+    """
+    Fetch a single RSS feed, deduplicate, and store new items.
+    Returns (items_found, items_new).
+    """
     name = feed_config["name"]
     url = feed_config["url"]
     error = None
@@ -59,9 +66,11 @@ def poll_feed(feed_config: dict) -> tuple[int, int]:
             summary = entry.get("summary", "") or entry.get("description", "")
             summary = summary.strip()
 
+            # --- Cheap dedup: exact GUID ---
             if is_rss_item_seen(guid):
                 continue
 
+            # --- Cheap dedup: content fingerprint ---
             fingerprint = make_fingerprint(title, summary)
             if is_fingerprint_seen(fingerprint):
                 logger.debug("Fingerprint match (dup): %s", title[:60])
@@ -75,7 +84,7 @@ def poll_feed(feed_config: dict) -> tuple[int, int]:
                 "fingerprint": fingerprint,
                 "title": title,
                 "url": entry.get("link", ""),
-                "summary": summary[:2000],
+                "summary": summary[:2000],  # Cap summary storage
                 "published_at": _parse_published(entry),
                 "topics": json.dumps(feed_config.get("topics", [])),
                 "ingested_at": datetime.utcnow().isoformat(),
@@ -94,6 +103,7 @@ def poll_feed(feed_config: dict) -> tuple[int, int]:
 
 
 def poll_all_feeds(feeds: list[dict]):
+    """Poll every feed in the config list."""
     total_found = 0
     total_new = 0
     for feed in feeds:

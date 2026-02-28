@@ -1,6 +1,7 @@
 """
-jobs.py — Defines and registers all polling jobs with APScheduler.
-RSS every 15 minutes. YouTube every 30 minutes (self-gated by posting window).
+scheduler/jobs.py — Defines and registers all polling jobs.
+RSS runs every 15 minutes. YouTube runs every 30 minutes but
+the channel module self-gates based on each channel's posting window.
 """
 
 import logging
@@ -9,8 +10,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from config import RSS_FEEDS, YOUTUBE_CHANNELS
-from rss import poll_all_feeds
-from youtube import poll_all_channels
+from ingestion.rss import poll_all_feeds
+from ingestion.youtube import poll_all_channels
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ def run_youtube_job():
 def start_scheduler():
     scheduler = BlockingScheduler(timezone="UTC")
 
+    # RSS: every 15 minutes
     scheduler.add_job(
         run_rss_job,
         trigger=IntervalTrigger(minutes=15),
@@ -37,6 +39,7 @@ def start_scheduler():
         misfire_grace_time=60,
     )
 
+    # YouTube: every 30 minutes (channels self-gate by posting window)
     scheduler.add_job(
         run_youtube_job,
         trigger=IntervalTrigger(minutes=30),
