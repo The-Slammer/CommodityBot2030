@@ -1,6 +1,5 @@
 """
-web.py — Minimal Flask server that serves the latest digest.
-Railway will expose this on whatever port is set in the PORT env var.
+web.py — Flask server serving the digest and a stats page.
 """
 
 import logging
@@ -19,7 +18,6 @@ PLACEHOLDER_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>The Daily Energy Jerkoff</title>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,900;1,700&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
     <style>
@@ -29,12 +27,14 @@ PLACEHOLDER_HTML = """<!DOCTYPE html>
         h1 { font-family:'Playfair Display',serif; font-size:3rem; color:#e8e2d6; margin-bottom:1rem; }
         h1 em { font-style:italic; color:#c9a84c; }
         p { font-size:0.7rem; letter-spacing:0.15em; text-transform:uppercase; }
+        a { color:#c9a84c; }
     </style>
 </head>
 <body>
     <div class="wrap">
         <h1>The Daily <em>Energy</em> Jerkoff</h1>
         <p>First edition publishes at 06:15 PST</p>
+        <p style="margin-top:1rem"><a href="/stats">View ingestion stats →</a></p>
     </div>
 </body>
 </html>"""
@@ -57,6 +57,80 @@ def health():
         "generated_at": digest["generated_at"] if digest else None,
         "server_time_utc": datetime.utcnow().isoformat(),
     }
+
+
+@app.route("/stats")
+def stats():
+    from database import get_conn
+    with get_conn() as conn:
+        rss_count = conn.execute("SELECT COUNT(*) FROM rss_items").fetchone()[0]
+        av_count = conn.execute("SELECT COUNT(*) FROM alphavantage_items").fetchone()[0]
+        digest_count = conn.execute("SELECT COUNT(*) FROM digests").fetchone()[0]
+
+        recent_polls = conn.execute("""
+            SELECT source_name, source_type, items_found, items_new, error, polled_at
+            FROM source_poll_log ORDER BY polled_at DESC LIMIT 30
+        """).fetchall()
+
+        recent_av = conn.execute("""
+            SELECT title, source_publisher, overall_sentiment_label, published_at
+            FROM alphavantage_items ORDER BY ingested_at DESC LIMIT 10
+        """).fetchall()
+
+    polls_html = "".join(f"""
+        <tr>
+            <td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td>
+            <td style="color:{'#ef4444' if r[4] else '#22c55e'}">{r[4] or 'OK'}</td>
+            <td>{r[5]}</td>
+        </tr>""" for r in recent_polls)
+
+    av_html = "".join(f"""
+        <tr>
+            <td>{r[0][:80] if r[0] else ''}</td><td>{r[1] or ''}</td>
+            <td style="color:#c9a84c">{r[2] or ''}</td><td>{r[3] or ''}</td>
+        </tr>""" for r in recent_av)
+
+    return Response(f"""<!DOCTYPE html>
+<html><head>
+<title>CommodityBot Stats</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body {{ background:#0a0a0a; color:#e8e2d6; font-family:'IBM Plex Mono',monospace; padding:2rem; font-size:13px; }}
+  h1 {{ color:#c9a84c; margin-bottom:2rem; font-size:1.2rem; letter-spacing:0.2em; }}
+  h2 {{ color:#c9a84c; font-size:0.8rem; letter-spacing:0.15em; margin:2rem 0 0.75rem; border-bottom:1px solid #222; padding-bottom:0.5rem; }}
+  .counts {{ display:flex; gap:2rem; margin-bottom:2rem; flex-wrap:wrap; }}
+  .count {{ background:#111; border:1px solid #222; padding:1rem 1.5rem; }}
+  .count .n {{ font-size:2rem; color:#e8e2d6; }}
+  .count .l {{ font-size:0.65rem; color:#6b6560; letter-spacing:0.1em; text-transform:uppercase; }}
+  table {{ width:100%; border-collapse:collapse; }}
+  th {{ text-align:left; color:#6b6560; font-size:0.65rem; letter-spacing:0.1em; padding:0.4rem 0.5rem; border-bottom:1px solid #222; }}
+  td {{ padding:0.4rem 0.5rem; border-bottom:1px solid #161616; color:#9a9490; font-size:0.7rem; max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  a {{ color:#c9a84c; text-decoration:none; }}
+</style>
+</head><body>
+<h1>COMMODITYBOT — INGESTION STATS</h1>
+<div class="counts">
+  <div class="count"><div class="n">{rss_count}</div><div class="l">RSS Items</div></div>
+  <div class="count"><div class="n">{av_count}</div><div class="l">AV Items</div></div>
+  <div class="count"><div class="n">{digest_count}</div><div class="l">Digests Generated</div></div>
+</div>
+
+<h2>RECENT POLL LOG</h2>
+<table>
+  <tr><th>SOURCE</th><th>TYPE</th><th>FOUND</th><th>NEW</th><th>STATUS</th><th>TIME</th></tr>
+  {polls_html}
+</table>
+
+<h2>LATEST ALPHAVANTAGE ITEMS</h2>
+<table>
+  <tr><th>TITLE</th><th>PUBLISHER</th><th>SENTIMENT</th><th>PUBLISHED</th></tr>
+  {av_html}
+</table>
+
+<p style="margin-top:2rem;color:#333;font-size:0.65rem;">
+  <a href="/">← back to digest</a> &nbsp;·&nbsp; next digest: 06:15 PST daily
+</p>
+</body></html>""", mimetype="text/html")
 
 
 def start_web_server():
