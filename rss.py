@@ -9,7 +9,7 @@ from datetime import datetime
 
 import feedparser
 
-from db.database import (
+from database import (
     insert_rss_item,
     is_fingerprint_seen,
     is_rss_item_seen,
