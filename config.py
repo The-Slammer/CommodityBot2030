@@ -1,7 +1,13 @@
 """
 config.py — All source definitions live here.
 Add/remove feeds and channels without touching any other file.
+
+Company IR feeds have been removed — those companies are now
+queried directly via AlphaVantage NEWS_SENTIMENT for better
+coverage and pre-scored sentiment data.
 """
+
+import os
 
 RSS_FEEDS = [
     # --- Market & Data Sources ---
@@ -36,46 +42,10 @@ RSS_FEEDS = [
     },
     {
         "name": "Uranium Insider (Substack)",
-        "url": "https://uraniuminsider.substack.com/feed",  # Replace with private feed URL
+        "url": os.getenv("URANIUM_INSIDER_FEED", "https://uraniuminsider.substack.com/feed"),
         "source_type": "newsletter",
         "credibility_tier": 2,
         "topics": ["uranium"],
-    },
-    # --- Company IR Feeds ---
-    {
-        "name": "Cameco Investor Relations",
-        "url": "https://www.cameco.com/invest/rss",
-        "source_type": "company_ir",
-        "credibility_tier": 3,  # Promotional — weighted lower
-        "topics": ["uranium"],
-    },
-    {
-        "name": "ExxonMobil Newsroom",
-        "url": "https://corporate.exxonmobil.com/rss/news",
-        "source_type": "company_ir",
-        "credibility_tier": 3,
-        "topics": ["oil", "natural_gas"],
-    },
-    {
-        "name": "Chevron Newsroom",
-        "url": "https://www.chevron.com/rss/news",
-        "source_type": "company_ir",
-        "credibility_tier": 3,
-        "topics": ["oil", "natural_gas"],
-    },
-    {
-        "name": "ConocoPhillips News",
-        "url": "https://www.conocophillips.com/rss/news",
-        "source_type": "company_ir",
-        "credibility_tier": 3,
-        "topics": ["oil", "natural_gas"],
-    },
-    {
-        "name": "Pioneer Natural Resources",
-        "url": "https://www.pxd.com/rss/news",
-        "source_type": "company_ir",
-        "credibility_tier": 3,
-        "topics": ["oil"],
     },
     # --- General Energy News ---
     {
@@ -123,7 +93,6 @@ YOUTUBE_CHANNELS = [
         "source_type": "podcast",
         "credibility_tier": 2,
         "topics": ["oil", "natural_gas", "uranium", "macro"],
-        # Expected posting window in UTC (hour, 24hr)
         "post_window_utc": (14, 16),
     },
     {
@@ -145,13 +114,122 @@ YOUTUBE_CHANNELS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# AlphaVantage NEWS_SENTIMENT sources
+# ---------------------------------------------------------------------------
+# Two query types:
+#   ticker  — news for a specific equity (XOM, CVX, etc.)
+#   topic   — broad topic-based news feed
+#
+# Each entry = 1 API call per poll cycle.
+# AV free tier: 25 calls/day. Premium: much higher.
+# At 30-min polling with 11 sources = ~528 calls/day — needs premium.
+# To stay on free tier, increase poll interval to 6hrs in jobs.py
+# or reduce source count.
+# ---------------------------------------------------------------------------
+
+ALPHAVANTAGE_SOURCES = [
+    # --- Major Oil & Gas Equities ---
+    {
+        "name": "ExxonMobil (XOM)",
+        "query_type": "ticker",
+        "query_value": "XOM",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["oil", "natural_gas", "company_event"],
+    },
+    {
+        "name": "Chevron (CVX)",
+        "query_type": "ticker",
+        "query_value": "CVX",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["oil", "natural_gas", "company_event"],
+    },
+    {
+        "name": "ConocoPhillips (COP)",
+        "query_type": "ticker",
+        "query_value": "COP",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["oil", "natural_gas", "company_event"],
+    },
+    {
+        "name": "Occidental Petroleum (OXY)",
+        "query_type": "ticker",
+        "query_value": "OXY",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["oil", "natural_gas", "company_event"],
+    },
+    {
+        "name": "EOG Resources (EOG)",
+        "query_type": "ticker",
+        "query_value": "EOG",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["oil", "natural_gas", "company_event"],
+    },
+    # --- Uranium Equities ---
+    {
+        "name": "Cameco (CCJ)",
+        "query_type": "ticker",
+        "query_value": "CCJ",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["uranium", "company_event"],
+    },
+    {
+        "name": "Uranium Energy Corp (UEC)",
+        "query_type": "ticker",
+        "query_value": "UEC",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["uranium", "company_event"],
+    },
+    {
+        "name": "Denison Mines (DNN)",
+        "query_type": "ticker",
+        "query_value": "DNN",
+        "source_type": "equity_news",
+        "credibility_tier": 1,
+        "topics": ["uranium", "company_event"],
+    },
+    {
+        "name": "W&T Offshore (WTI)",
+        "query_type": "ticker",
+        "query_value": "WTI",
+        "source_type": "equity_news",
+        "credibility_tier": 2,
+        "topics": ["oil", "company_event"],
+    },
+    {
+        "name": "Ring Energy (REI)",
+        "query_type": "ticker",
+        "query_value": "REI",
+        "source_type": "equity_news",
+        "credibility_tier": 2,
+        "topics": ["oil", "company_event"],
+    },
+    # --- Topic-Based Commodity News ---
+    {
+        "name": "Energy Market News (Topic)",
+        "query_type": "topic",
+        "query_value": "energy_transportation",
+        "source_type": "topic_news",
+        "credibility_tier": 2,
+        "topics": ["oil", "natural_gas"],
+    },
+]
+
+
 # Topic taxonomy — items must map to at least one of these
 TOPIC_TAXONOMY = [
     "oil",
     "natural_gas",
     "uranium",
     "nuclear",
-    "macro",          # Macro factors: rates, dollar, geopolitics
-    "company_event",  # Earnings, M&A, production updates
-    "policy",         # Regulation, permitting, sanctions
+    "macro",
+    "company_event",
+    "policy",
 ]

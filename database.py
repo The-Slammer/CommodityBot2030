@@ -1,6 +1,5 @@
 """
-db/database.py — SQLite schema and all read/write operations.
-Single source of truth for persistence.
+database.py — SQLite schema and all read/write operations.
 """
 
 import sqlite3
@@ -29,7 +28,6 @@ def get_conn():
 
 
 def init_db():
-    """Create tables if they don't exist. Safe to call on every startup."""
     with get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS rss_items (
@@ -37,15 +35,15 @@ def init_db():
                 source_name     TEXT NOT NULL,
                 source_type     TEXT NOT NULL,
                 credibility_tier INTEGER NOT NULL,
-                guid            TEXT UNIQUE NOT NULL,   -- RSS guid or link, used for dedup
-                fingerprint     TEXT NOT NULL,           -- Hash of title+summary for semantic dedup
+                guid            TEXT UNIQUE NOT NULL,
+                fingerprint     TEXT NOT NULL,
                 title           TEXT,
                 url             TEXT,
                 summary         TEXT,
                 published_at    TEXT,
-                topics          TEXT,                    -- JSON list e.g. ["oil","natural_gas"]
+                topics          TEXT,
                 ingested_at     TEXT NOT NULL,
-                processed       INTEGER DEFAULT 0        -- 0=new, 1=triaged
+                processed       INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS youtube_items (
@@ -59,26 +57,65 @@ def init_db():
                 published_at    TEXT,
                 transcript_raw  TEXT,
                 transcript_summary TEXT,
-                topics          TEXT,                    -- JSON list
+                topics          TEXT,
                 ingested_at     TEXT NOT NULL,
                 processed       INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS alphavantage_items (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_name             TEXT NOT NULL,
+                query_type              TEXT NOT NULL,   -- 'ticker' or 'topic'
+                query_value             TEXT NOT NULL,   -- e.g. 'XOM' or 'energy_transportation'
+                source_type             TEXT NOT NULL,
+                credibility_tier        INTEGER NOT NULL,
+                url                     TEXT UNIQUE NOT NULL,  -- primary dedup key
+                fingerprint             TEXT NOT NULL,
+                title                   TEXT,
+                summary                 TEXT,
+                source_publisher        TEXT,            -- e.g. 'Reuters', 'Finviz'
+                published_at            TEXT,
+                overall_sentiment_score REAL,            -- AV pre-scored: -1.0 to 1.0
+                overall_sentiment_label TEXT,            -- 'Bullish', 'Neutral', etc.
+                ticker_sentiment        TEXT,            -- JSON: per-ticker scores
+                av_topics               TEXT,            -- JSON: AV's own topic tags
+                topics                  TEXT,            -- JSON: our taxonomy tags
+                ingested_at             TEXT NOT NULL,
+                processed               INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS source_poll_log (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_name     TEXT NOT NULL,
-                source_type     TEXT NOT NULL,           -- 'rss' or 'youtube'
+                source_type     TEXT NOT NULL,           -- 'rss', 'youtube', 'alphavantage'
                 polled_at       TEXT NOT NULL,
                 items_found     INTEGER DEFAULT 0,
                 items_new       INTEGER DEFAULT 0,
-                error           TEXT                     -- NULL if successful
+                error           TEXT
             );
 
-            CREATE INDEX IF NOT EXISTS idx_rss_guid        ON rss_items(guid);
-            CREATE INDEX IF NOT EXISTS idx_rss_fingerprint ON rss_items(fingerprint);
-            CREATE INDEX IF NOT EXISTS idx_rss_processed   ON rss_items(processed);
-            CREATE INDEX IF NOT EXISTS idx_yt_video_id     ON youtube_items(video_id);
-            CREATE INDEX IF NOT EXISTS idx_yt_processed    ON youtube_items(processed);
+            CREATE INDEX IF NOT EXISTS idx_rss_guid            ON rss_items(guid);
+            CREATE INDEX IF NOT EXISTS idx_rss_fingerprint     ON rss_items(fingerprint);
+            CREATE INDEX IF NOT EXISTS idx_rss_processed       ON rss_items(processed);
+            CREATE INDEX IF NOT EXISTS idx_yt_video_id         ON youtube_items(video_id);
+            CREATE INDEX IF NOT EXISTS idx_yt_processed        ON youtube_items(processed);
+            CREATE INDEX IF NOT EXISTS idx_av_url              ON alphavantage_items(url);
+            CREATE INDEX IF NOT EXISTS idx_av_fingerprint      ON alphavantage_items(fingerprint);
+            CREATE INDEX IF NOT EXISTS idx_av_processed        ON alphavantage_items(processed);
+            CREATE INDEX IF NOT EXISTS idx_av_sentiment        ON alphavantage_items(overall_sentiment_score);
+            CREATE INDEX IF NOT EXISTS idx_av_query_value      ON alphavantage_items(query_value);
+
+            CREATE TABLE IF NOT EXISTS digests (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                date_str            TEXT NOT NULL,
+                html                TEXT NOT NULL,
+                price_sentiments    TEXT,   -- JSON
+                news_sentiments     TEXT,   -- JSON
+                narrative           TEXT,
+                generated_at        TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_digest_generated ON digests(generated_at);
         """)
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -87,18 +124,13 @@ def init_db():
 
 def is_rss_item_seen(guid: str) -> bool:
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM rss_items WHERE guid = ?", (guid,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM rss_items WHERE guid = ?", (guid,)).fetchone()
         return row is not None
 
 
 def is_fingerprint_seen(fingerprint: str) -> bool:
-    """Catch near-duplicate items with the same content but different GUIDs."""
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM rss_items WHERE fingerprint = ?", (fingerprint,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM rss_items WHERE fingerprint = ?", (fingerprint,)).fetchone()
         return row is not None
 
 
@@ -117,10 +149,8 @@ def insert_rss_item(item: dict):
 def get_unprocessed_rss_items(limit: int = 100) -> list:
     with get_conn() as conn:
         rows = conn.execute("""
-            SELECT * FROM rss_items
-            WHERE processed = 0
-            ORDER BY ingested_at ASC
-            LIMIT ?
+            SELECT * FROM rss_items WHERE processed = 0
+            ORDER BY ingested_at ASC LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
 
@@ -129,9 +159,7 @@ def get_unprocessed_rss_items(limit: int = 100) -> list:
 
 def is_video_seen(video_id: str) -> bool:
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM youtube_items WHERE video_id = ?", (video_id,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM youtube_items WHERE video_id = ?", (video_id,)).fetchone()
         return row is not None
 
 
@@ -149,6 +177,41 @@ def insert_youtube_item(item: dict):
         """, item)
 
 
+# --- AlphaVantage ---
+
+def is_alphavantage_item_seen(url: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM alphavantage_items WHERE url = ?", (url,)
+        ).fetchone()
+        return row is not None
+
+
+def insert_alphavantage_item(item: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO alphavantage_items
+                (source_name, query_type, query_value, source_type, credibility_tier,
+                 url, fingerprint, title, summary, source_publisher, published_at,
+                 overall_sentiment_score, overall_sentiment_label, ticker_sentiment,
+                 av_topics, topics, ingested_at)
+            VALUES
+                (:source_name, :query_type, :query_value, :source_type, :credibility_tier,
+                 :url, :fingerprint, :title, :summary, :source_publisher, :published_at,
+                 :overall_sentiment_score, :overall_sentiment_label, :ticker_sentiment,
+                 :av_topics, :topics, :ingested_at)
+        """, item)
+
+
+def get_unprocessed_alphavantage_items(limit: int = 100) -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM alphavantage_items WHERE processed = 0
+            ORDER BY ingested_at ASC LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
 # --- Poll log ---
 
 def log_poll(source_name: str, source_type: str, items_found: int,
@@ -160,3 +223,36 @@ def log_poll(source_name: str, source_type: str, items_found: int,
             VALUES (?, ?, ?, ?, ?, ?)
         """, (source_name, source_type, datetime.utcnow().isoformat(),
               items_found, items_new, error))
+
+
+# --- Digest ---
+
+def get_last_24h_alphavantage_items() -> list:
+    """Return all AV items ingested in the last 24 hours for digest generation."""
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM alphavantage_items
+            WHERE ingested_at >= ?
+            ORDER BY ingested_at DESC
+        """, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_digest(digest: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO digests
+                (date_str, html, price_sentiments, news_sentiments, narrative, generated_at)
+            VALUES
+                (:date_str, :html, :price_sentiments, :news_sentiments, :narrative, :generated_at)
+        """, digest)
+
+
+def get_latest_digest() -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT * FROM digests ORDER BY generated_at DESC LIMIT 1
+        """).fetchone()
+        return dict(row) if row else None
