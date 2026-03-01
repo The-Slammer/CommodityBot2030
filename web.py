@@ -133,17 +133,27 @@ def stats():
         rss_count = conn.execute("SELECT COUNT(*) FROM rss_items").fetchone()[0]
         av_count = conn.execute("SELECT COUNT(*) FROM alphavantage_items").fetchone()[0]
         digest_count = conn.execute("SELECT COUNT(*) FROM digests").fetchone()[0]
-        recent_polls = conn.execute("""
-            SELECT source_name, source_type, items_found, items_new, error, polled_at
-            FROM source_poll_log ORDER BY polled_at DESC LIMIT 30
+        rss_polls = conn.execute("""
+            SELECT source_name, items_found, items_new, error, polled_at
+            FROM source_poll_log WHERE source_type = 'rss'
+            ORDER BY polled_at DESC LIMIT 20
+        """).fetchall()
+        av_polls = conn.execute("""
+            SELECT source_name, items_found, items_new, error, polled_at
+            FROM source_poll_log WHERE source_type = 'alphavantage'
+            ORDER BY polled_at DESC LIMIT 40
         """).fetchall()
 
     equity_signals = get_equity_sentiment_all()
 
-    polls_html = "".join(f"""
-        <tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td>
-        <td style="color:{'#ef4444' if r[4] else '#22c55e'}">{r[4] or 'OK'}</td>
-        <td>{r[5]}</td></tr>""" for r in recent_polls)
+    def poll_rows(rows):
+        return "".join(
+            f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td>"
+            f"<td style="color:{'#ef4444' if r[3] else '#22c55e'}">{r[3] or 'OK'}</td>"
+            f"<td>{r[4]}</td></tr>" for r in rows)
+
+    rss_polls_html = poll_rows(rss_polls) or "<tr><td colspan='5' style='color:#6b6560'>No RSS polls logged yet</td></tr>"
+    av_polls_html = poll_rows(av_polls) or "<tr><td colspan='5' style='color:#6b6560'>No AV polls logged yet</td></tr>"
 
     def signal_badge(label, color):
         return f'<span style="border:1px solid {color};color:{color};font-family:\'IBM Plex Mono\',monospace;font-size:0.6rem;letter-spacing:0.08em;padding:0.15rem 0.5rem">{label}</span>'
@@ -204,10 +214,16 @@ a{{color:#c9a84c;text-decoration:none}}
   {equity_rows}
 </table>
 
-<h2>RECENT POLL LOG</h2>
+<h2>RSS FEEDS — LAST 20 POLLS PER FEED</h2>
 <table>
-  <tr><th>Source</th><th>Type</th><th>Found</th><th>New</th><th>Status</th><th>Time</th></tr>
-  {polls_html}
+  <tr><th>Source</th><th>Found</th><th>New</th><th>Status</th><th>Time</th></tr>
+  {rss_polls_html}
+</table>
+
+<h2>ALPHAVANTAGE — LAST 40 POLLS</h2>
+<table>
+  <tr><th>Source</th><th>Found</th><th>New</th><th>Status</th><th>Time</th></tr>
+  {av_polls_html}
 </table>
 
 <div style="margin-top:2rem;padding:0.85rem 1rem;border:1px solid #2a2a2a;font-size:0.58rem;color:#6b6560;line-height:1.7">
