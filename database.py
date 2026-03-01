@@ -5,7 +5,7 @@ database.py — SQLite schema and all read/write operations.
 import sqlite3
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
