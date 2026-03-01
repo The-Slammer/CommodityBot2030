@@ -34,9 +34,32 @@ from evening_digest import generate_evening_digest
 from weekly_digest import generate_weekly_digest
 from sentiment import update_all_equity_signals
 from earnings import check_earnings_calendar, poll_transcripts_for_watch_list
-from eia import poll_eia_crude, poll_eia_natgas, poll_eia_drilling
-from trading import run_trading_window, run_eod_settlement
-from sec import poll_sec_filings
+try:
+    from eia import poll_eia_crude, poll_eia_natgas, poll_eia_drilling
+    _eia_available = True
+except ImportError as e:
+    import logging; logging.getLogger(__name__).warning("eia module unavailable: %s", e)
+    _eia_available = False
+    def poll_eia_crude(): pass
+    def poll_eia_natgas(): pass
+    def poll_eia_drilling(): pass
+
+try:
+    from sec import poll_sec_filings
+    _sec_available = True
+except ImportError as e:
+    import logging; logging.getLogger(__name__).warning("sec module unavailable: %s", e)
+    _sec_available = False
+    def poll_sec_filings(tickers): pass
+
+try:
+    from trading import run_trading_window, run_eod_settlement
+    _trading_available = True
+except ImportError as e:
+    import logging; logging.getLogger(__name__).warning("trading module unavailable: %s", e)
+    _trading_available = False
+    def run_trading_window(window): pass
+    def run_eod_settlement(): pass
 from web import start_web_server
 
 logger = logging.getLogger(__name__)

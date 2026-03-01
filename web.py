@@ -14,10 +14,15 @@ from database import (
     get_latest_evening_digest,
     get_latest_weekly_digest,
     get_equity_sentiment_all,
-    get_open_positions,
-    get_closed_trades,
-    get_portfolio_summary,
 )
+try:
+    from database import get_open_positions, get_closed_trades, get_portfolio_summary
+    _trading_db_available = True
+except ImportError:
+    _trading_db_available = False
+    def get_open_positions(**kw): return []
+    def get_closed_trades(**kw): return []
+    def get_portfolio_summary(): return {"total_capital":5000,"deployed_capital":0,"available_capital":5000,"open_positions":0,"total_trades":0,"total_pnl":0,"win_rate":0,"wins":0}
 
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
