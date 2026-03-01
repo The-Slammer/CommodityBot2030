@@ -1,5 +1,5 @@
 """
-config.py — All source definitions live here.
+config.py — All source definitions.
 """
 
 import os
@@ -23,33 +23,65 @@ YOUTUBE_CHANNELS = [
     {"name": "Uranium Royalties Channel", "channel_id": "UCbbb_replace_with_real_id", "source_type": "company_channel", "credibility_tier": 3, "topics": ["uranium"], "post_window_utc": (15, 17)},
 ]
 
-# ---------------------------------------------------------------------------
-# AlphaVantage sources
-# track_earnings: pulls earnings calendar + transcripts around release time
-# commodity: which commodity bucket this equity feeds for sentiment meter
-# ---------------------------------------------------------------------------
 ALPHAVANTAGE_SOURCES = [
-    # Major Oil & Gas
+
+    # =========================================================
+    # OIL & GAS — XLE CONSTITUENTS (NYSE)
+    # Ordered by XLE weight
+    # =========================================================
+
+    # Tier 1 — Mega caps
     {"name": "ExxonMobil (XOM)", "query_type": "ticker", "query_value": "XOM", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Chevron (CVX)", "query_type": "ticker", "query_value": "CVX", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "ConocoPhillips (COP)", "query_type": "ticker", "query_value": "COP", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "Occidental Petroleum (OXY)", "query_type": "ticker", "query_value": "OXY", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "EOG Resources (EOG)", "query_type": "ticker", "query_value": "EOG", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "Diamondback Energy (FANG)", "query_type": "ticker", "query_value": "FANG", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "Devon Energy (DVN)", "query_type": "ticker", "query_value": "DVN", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "Coterra Energy (CTRA)", "query_type": "ticker", "query_value": "CTRA", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
-    {"name": "Kinder Morgan (KMI)", "query_type": "ticker", "query_value": "KMI", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
-    {"name": "Halliburton (HAL)", "query_type": "ticker", "query_value": "HAL", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Williams Companies (WMB)", "query_type": "ticker", "query_value": "WMB", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
     {"name": "SLB (SLB)", "query_type": "ticker", "query_value": "SLB", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "EOG Resources (EOG)", "query_type": "ticker", "query_value": "EOG", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Kinder Morgan (KMI)", "query_type": "ticker", "query_value": "KMI", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Baker Hughes (BKR)", "query_type": "ticker", "query_value": "BKR", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Valero Energy (VLO)", "query_type": "ticker", "query_value": "VLO", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
-    # Uranium
+    {"name": "Phillips 66 (PSX)", "query_type": "ticker", "query_value": "PSX", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Marathon Petroleum (MPC)", "query_type": "ticker", "query_value": "MPC", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "ONEOK (OKE)", "query_type": "ticker", "query_value": "OKE", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Targa Resources (TRGP)", "query_type": "ticker", "query_value": "TRGP", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "EQT Corp (EQT)", "query_type": "ticker", "query_value": "EQT", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Occidental Petroleum (OXY)", "query_type": "ticker", "query_value": "OXY", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Diamondback Energy (FANG)", "query_type": "ticker", "query_value": "FANG", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Halliburton (HAL)", "query_type": "ticker", "query_value": "HAL", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Devon Energy (DVN)", "query_type": "ticker", "query_value": "DVN", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Expand Energy (EXE)", "query_type": "ticker", "query_value": "EXE", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Texas Pacific Land (TPL)", "query_type": "ticker", "query_value": "TPL", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Coterra Energy (CTRA)", "query_type": "ticker", "query_value": "CTRA", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "APA Corp (APA)", "query_type": "ticker", "query_value": "APA", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+
+    # =========================================================
+    # OIL & GAS — MICRO CAPS (NYSE-listed E&P)
+    # =========================================================
+    {"name": "Northern Oil and Gas (NOG)", "query_type": "ticker", "query_value": "NOG", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Comstock Resources (CRK)", "query_type": "ticker", "query_value": "CRK", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Tellurian (TELL)", "query_type": "ticker", "query_value": "TELL", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Genie Energy (GNE)", "query_type": "ticker", "query_value": "GNE", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "W&T Offshore (WTI)", "query_type": "ticker", "query_value": "WTI", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Ring Energy (REI)", "query_type": "ticker", "query_value": "REI", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+
+    # =========================================================
+    # URANIUM — NYSE / NYSE American listed
+    # Non-US listed (ASX, TSX, London) excluded — not in AV
+    # =========================================================
     {"name": "Cameco (CCJ)", "query_type": "ticker", "query_value": "CCJ", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
     {"name": "Uranium Energy Corp (UEC)", "query_type": "ticker", "query_value": "UEC", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
     {"name": "Denison Mines (DNN)", "query_type": "ticker", "query_value": "DNN", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
-    # Smaller caps
-    {"name": "W&T Offshore (WTI)", "query_type": "ticker", "query_value": "WTI", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "Ring Energy (REI)", "query_type": "ticker", "query_value": "REI", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
-    # Topic-based
+    {"name": "Energy Fuels (UUUU)", "query_type": "ticker", "query_value": "UUUU", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
+    {"name": "NexGen Energy (NXE)", "query_type": "ticker", "query_value": "NXE", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
+    {"name": "Ur-Energy (URG)", "query_type": "ticker", "query_value": "URG", "source_type": "equity_news", "credibility_tier": 2, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
+    {"name": "enCore Energy (EU)", "query_type": "ticker", "query_value": "EU", "source_type": "equity_news", "credibility_tier": 2, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
+
+    # Note: PDN, DYL, BMN, BOE (ASX), U-U (TSX), KAP (London/Kazakhstan),
+    # CGN (HK), YCA (London) are not available via AlphaVantage.
+
+    # =========================================================
+    # TOPIC-BASED — broad market news
+    # =========================================================
     {"name": "Energy Market News (Topic)", "query_type": "topic", "query_value": "energy_transportation", "source_type": "topic_news", "credibility_tier": 2, "topics": ["oil", "natural_gas"], "track_earnings": False, "commodity": None},
 ]
 
