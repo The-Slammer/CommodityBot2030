@@ -14,6 +14,9 @@ from database import (
     get_latest_evening_digest,
     get_latest_weekly_digest,
     get_equity_sentiment_all,
+    get_open_positions,
+    get_closed_trades,
+    get_portfolio_summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,7 @@ text-decoration:none;letter-spacing:0.08em">Morning Report</a>
 text-decoration:none;letter-spacing:0.08em">Evening Brief</a>
 <a href="/weekly" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
 text-decoration:none;letter-spacing:0.08em">Weekly Wrap</a>
+<a href="/portfolio" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em">Portfolio</a>
 <a href="/stats" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
 text-decoration:none;letter-spacing:0.08em;margin-left:auto">Stats →</a>
 </nav>"""
@@ -252,6 +256,138 @@ a{{color:#c9a84c}}</style></head>
 <body><div><div class="msg">{msg}</div>
 <p style="margin-top:1.5rem;font-size:0.65rem;color:#444"><a href="/stats">← back to stats</a></p>
 </div></body></html>"""
+
+
+
+@app.route("/portfolio")
+def portfolio():
+    summary = get_portfolio_summary()
+    open_pos = get_open_positions(include_pending=True)
+    closed = get_closed_trades(limit=50)
+
+    total_capital   = summary["total_capital"]
+    deployed        = summary["deployed_capital"]
+    available       = summary["available_capital"]
+    open_count      = summary["open_positions"]
+    total_trades    = summary["total_trades"]
+    total_pnl       = summary["total_pnl"]
+    win_rate        = summary["win_rate"]
+    wins            = summary["wins"]
+
+    def pnl_color(v):
+        if v is None: return "#9a9490"
+        return "#22c55e" if float(v) >= 0 else "#ef4444"
+
+    def pnl_fmt(v, prefix="$"):
+        if v is None: return "—"
+        return f"{prefix}{float(v):+.2f}" if prefix == "$" else f"{float(v):+.2f}%"
+
+    def status_badge(s):
+        colors = {
+            "open": "#22c55e",
+            "pending_open": "#c9a84c",
+            "pending_close": "#fca5a5",
+            "closed": "#6b6560",
+        }
+        c = colors.get(s, "#9a9490")
+        label_text = s.upper().replace("_", " ")
+        return (f'<span style="border:1px solid {c};color:{c};font-family:IBM Plex Mono,monospace;'
+                f'font-size:0.58rem;padding:0.1rem 0.4rem;letter-spacing:0.06em">{label_text}</span>')
+
+    # Open positions table
+    if open_pos:
+        open_rows = "".join(f"""
+            <tr>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#e8e2d6;font-weight:bold">{p["ticker"]}</td>
+                <td style="color:#9a9490">{p.get("commodity","")}</td>
+                <td>{status_badge(p.get("status",""))}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#9a9490">${p.get("position_size",0):.0f}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#9a9490">${p.get("entry_price") or 0:.2f}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#9a9490">${p.get("current_price") or 0:.2f}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:{pnl_color(p.get("pnl"))}">{pnl_fmt(p.get("pnl"))}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:{pnl_color(p.get("pnl_pct"))}">{pnl_fmt(p.get("pnl_pct"), "")}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#c9a84c;font-size:0.65rem">{p.get("entry_score",0):.3f}</td>
+                <td style="color:#6b6560;font-size:0.62rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{p.get("entry_reason","")}</td>
+            </tr>""" for p in open_pos)
+    else:
+        open_rows = "<tr><td colspan='10' style='color:#6b6560;text-align:center;padding:1.5rem'>No open positions — trading windows run at 09:45, 12:00, 15:30 ET</td></tr>"
+
+    # Closed trades table
+    if closed:
+        closed_rows = "".join(f"""
+            <tr>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#e8e2d6">{t["ticker"]}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#9a9490">${t.get("entry_price") or 0:.2f}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#9a9490">${t.get("exit_price") or 0:.2f}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:#9a9490">${t.get("position_size",0):.0f}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:{pnl_color(t.get("pnl"))}">{pnl_fmt(t.get("pnl"))}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;color:{pnl_color(t.get("pnl_pct"))}">{pnl_fmt(t.get("pnl_pct"), "")}</td>
+                <td style="color:#6b6560;font-size:0.62rem">{(t.get("opened_at") or "")[:10]}</td>
+                <td style="color:#6b6560;font-size:0.62rem">{(t.get("closed_at") or "")[:10]}</td>
+                <td style="color:#9a9490;font-size:0.62rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{t.get("exit_reason","")}</td>
+            </tr>""" for t in closed)
+    else:
+        closed_rows = "<tr><td colspan='9' style='color:#6b6560;text-align:center;padding:1.5rem'>No closed trades yet</td></tr>"
+
+    deployed_pct = round(deployed / total_capital * 100, 1)
+    pnl_color_total = "#22c55e" if total_pnl >= 0 else "#ef4444"
+
+    return Response(_wrap(f"""<!DOCTYPE html>
+<html><head><title>CommodityBot — Portfolio</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;font-size:13px;margin:0}}
+.content{{padding:2rem clamp(1.5rem,5vw,4rem)}}
+h1{{color:#c9a84c;font-size:1.1rem;letter-spacing:0.2em;margin-bottom:0.25rem}}
+h2{{color:#c9a84c;font-size:0.75rem;letter-spacing:0.15em;margin:2rem 0 0.75rem;border-bottom:1px solid #222;padding-bottom:0.5rem}}
+.stats-row{{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:2rem}}
+.stat{{background:#111;border:1px solid #222;padding:0.75rem 1.25rem;min-width:120px}}
+.stat .n{{font-size:1.6rem;color:#e8e2d6;font-weight:500}}
+.stat .l{{font-size:0.58rem;color:#6b6560;letter-spacing:0.1em;text-transform:uppercase;margin-top:0.15rem}}
+table{{width:100%;border-collapse:collapse}}
+th{{text-align:left;color:#6b6560;font-size:0.6rem;letter-spacing:0.1em;padding:0.4rem;border-bottom:1px solid #222;text-transform:uppercase}}
+td{{padding:0.4rem;border-bottom:1px solid #161616;color:#9a9490;font-size:0.68rem;vertical-align:middle}}
+.bar-bg{{background:#1a1a1a;height:4px;border-radius:2px;margin-top:0.5rem}}
+.bar-fill{{background:#c9a84c;height:4px;border-radius:2px}}
+a{{color:#c9a84c;text-decoration:none}}
+</style></head>
+<body><div class="content">
+<h1>PAPER TRADING — PORTFOLIO</h1>
+<div style="font-size:0.6rem;color:#444;margin-bottom:1.5rem">
+  Automated signal-driven paper trades · $5,000 capital pool · Windows: 09:45 / 12:00 / 15:30 ET · EOD settlement
+</div>
+
+<div class="stats-row">
+  <div class="stat"><div class="n">${total_capital:,.0f}</div><div class="l">Total Capital</div></div>
+  <div class="stat"><div class="n" style="color:#c9a84c">${deployed:,.0f}</div><div class="l">Deployed ({deployed_pct}%)</div>
+    <div class="bar-bg"><div class="bar-fill" style="width:{deployed_pct}%"></div></div>
+  </div>
+  <div class="stat"><div class="n">${available:,.0f}</div><div class="l">Available</div></div>
+  <div class="stat"><div class="n">{open_count}</div><div class="l">Open Positions</div></div>
+  <div class="stat"><div class="n" style="color:{pnl_color_total}">{pnl_fmt(total_pnl)}</div><div class="l">Total P&amp;L</div></div>
+  <div class="stat"><div class="n">{win_rate}%</div><div class="l">Win Rate ({wins}/{total_trades})</div></div>
+</div>
+
+<h2>OPEN POSITIONS</h2>
+<table>
+  <tr>
+    <th>Ticker</th><th>Sector</th><th>Status</th><th>Size</th>
+    <th>Entry $</th><th>Current $</th><th>P&amp;L $</th><th>P&amp;L %</th>
+    <th>Signal</th><th>Entry Reason</th>
+  </tr>
+  {open_rows}
+</table>
+
+<h2>TRADE HISTORY</h2>
+<table>
+  <tr>
+    <th>Ticker</th><th>Entry $</th><th>Exit $</th><th>Size</th>
+    <th>P&amp;L $</th><th>P&amp;L %</th><th>Opened</th><th>Closed</th><th>Exit Reason</th>
+  </tr>
+  {closed_rows}
+</table>
+
+</div></body></html>"""), mimetype="text/html")
 
 
 def start_web_server():
