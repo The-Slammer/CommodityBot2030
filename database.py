@@ -520,3 +520,274 @@ def get_week_digests(days: int = 7) -> list:
             ORDER BY generated_at ASC
         """, (cutoff,)).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# EIA and SEC tables — appended
+# ---------------------------------------------------------------------------
+
+def init_eia_sec_tables():
+    """Call from main.py init sequence."""
+    with get_conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS eia_reports (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_type     TEXT NOT NULL,
+                period          TEXT NOT NULL,
+                value           REAL,
+                previous        REAL,
+                change          REAL,
+                unit            TEXT,
+                label           TEXT,
+                fetched_at      TEXT NOT NULL,
+                UNIQUE(report_type, period)
+            );
+            CREATE INDEX IF NOT EXISTS idx_eia_type ON eia_reports(report_type);
+            CREATE INDEX IF NOT EXISTS idx_eia_fetched ON eia_reports(fetched_at);
+
+            CREATE TABLE IF NOT EXISTS sec_filings (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker          TEXT NOT NULL,
+                cik             TEXT NOT NULL,
+                filing_type     TEXT NOT NULL,
+                filing_id       TEXT UNIQUE NOT NULL,
+                title           TEXT,
+                url             TEXT,
+                filed_at        TEXT,
+                items           TEXT,
+                item_labels     TEXT,
+                high_priority   INTEGER DEFAULT 0,
+                ingested_at     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sec_ticker ON sec_filings(ticker);
+            CREATE INDEX IF NOT EXISTS idx_sec_filed  ON sec_filings(filed_at);
+            CREATE INDEX IF NOT EXISTS idx_sec_priority ON sec_filings(high_priority);
+        """)
+
+
+# --- EIA ---
+
+def insert_eia_report(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO eia_reports
+                (report_type, period, value, previous, change, unit, label, fetched_at)
+            VALUES
+                (:report_type, :period, :value, :previous, :change, :unit, :label, :fetched_at)
+        """, data)
+
+
+def get_latest_eia_report(report_type: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT * FROM eia_reports WHERE report_type = ?
+            ORDER BY fetched_at DESC LIMIT 1
+        """, (report_type,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_recent_eia_reports(hours: int = 36) -> list:
+    cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM eia_reports WHERE fetched_at >= ?
+            ORDER BY fetched_at DESC
+        """, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+# --- SEC ---
+
+def insert_sec_filing(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO sec_filings
+                (ticker, cik, filing_type, filing_id, title, url, filed_at,
+                 items, item_labels, high_priority, ingested_at)
+            VALUES
+                (:ticker, :cik, :filing_type, :filing_id, :title, :url, :filed_at,
+                 :items, :item_labels, :high_priority, :ingested_at)
+        """, data)
+
+
+def is_sec_filing_stored(filing_id: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT 1 FROM sec_filings WHERE filing_id = ?
+        """, (filing_id,)).fetchone()
+        return row is not None
+
+
+def get_recent_sec_filings(hours: int = 36, high_priority_only: bool = False) -> list:
+    cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+    query = """
+        SELECT * FROM sec_filings WHERE ingested_at >= ?
+        {} ORDER BY high_priority DESC, filed_at DESC LIMIT 20
+    """.format("AND high_priority = 1" if high_priority_only else "")
+    with get_conn() as conn:
+        rows = conn.execute(query, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_cik_for_ticker(ticker: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT cik FROM sec_filings WHERE ticker = ? LIMIT 1
+        """, (ticker,)).fetchone()
+        return row[0] if row else None
+
+
+def upsert_cik(ticker: str, cik: str):
+    pass  # CIKs are hardcoded in sec.py — placeholder for future dynamic lookup
+
+
+# ---------------------------------------------------------------------------
+# Paper trading tables
+# ---------------------------------------------------------------------------
+
+def init_trading_tables():
+    """Call from main.py init sequence."""
+    with get_conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS paper_positions (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker            TEXT NOT NULL,
+                commodity         TEXT,
+                entry_reason      TEXT,
+                entry_score       REAL,
+                entry_label       TEXT,
+                position_size     REAL,
+                entry_price       REAL,
+                current_price     REAL,
+                exit_price        REAL,
+                pnl               REAL DEFAULT 0,
+                pnl_pct           REAL DEFAULT 0,
+                entry_window      TEXT,
+                exit_window       TEXT,
+                exit_reason       TEXT,
+                current_composite REAL,
+                status            TEXT DEFAULT 'pending_open',
+                opened_at         TEXT NOT NULL,
+                closed_at         TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_pp_ticker ON paper_positions(ticker);
+            CREATE INDEX IF NOT EXISTS idx_pp_status ON paper_positions(status);
+
+            CREATE TABLE IF NOT EXISTS score_snapshots (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker      TEXT NOT NULL,
+                score       REAL NOT NULL,
+                label       TEXT,
+                window      TEXT,
+                recorded_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ss_ticker ON score_snapshots(ticker);
+            CREATE INDEX IF NOT EXISTS idx_ss_time   ON score_snapshots(recorded_at);
+        """)
+
+
+def insert_position(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO paper_positions
+                (ticker, commodity, entry_reason, entry_score, entry_label,
+                 position_size, entry_price, current_price, entry_window,
+                 current_composite, status, opened_at)
+            VALUES
+                (:ticker, :commodity, :entry_reason, :entry_score, :entry_label,
+                 :position_size, :entry_price, :entry_price, :entry_window,
+                 :current_composite, :status, :opened_at)
+        """, data)
+
+
+def get_open_positions(include_pending: bool = False) -> list:
+    statuses = "('open', 'pending_open', 'pending_close')" if include_pending else "('open', 'pending_open')"
+    with get_conn() as conn:
+        rows = conn.execute(f"""
+            SELECT * FROM paper_positions
+            WHERE status IN {statuses}
+            ORDER BY opened_at DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def close_position(position_id: int, reason: str, closed_at: str):
+    """Mark position as pending_close — EOD settlement fills the price."""
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE paper_positions
+            SET status = 'pending_close', exit_reason = ?, closed_at = ?
+            WHERE id = ?
+        """, (reason, closed_at, position_id))
+
+
+def update_position_price(position_id: int, current_price: float = None,
+                           entry_price: float = None, exit_price: float = None,
+                           pnl: float = None, pnl_pct: float = None,
+                           status: str = None):
+    fields, vals = [], []
+    if current_price is not None: fields.append("current_price = ?"); vals.append(current_price)
+    if entry_price  is not None: fields.append("entry_price = ?");   vals.append(entry_price)
+    if exit_price   is not None: fields.append("exit_price = ?");    vals.append(exit_price)
+    if pnl          is not None: fields.append("pnl = ?");           vals.append(pnl)
+    if pnl_pct      is not None: fields.append("pnl_pct = ?");       vals.append(pnl_pct)
+    if status       is not None: fields.append("status = ?");        vals.append(status)
+    if not fields:
+        return
+    vals.append(position_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE paper_positions SET {', '.join(fields)} WHERE id = ?", vals)
+
+
+def get_portfolio_summary() -> dict:
+    with get_conn() as conn:
+        open_rows = conn.execute("""
+            SELECT SUM(position_size) as deployed, COUNT(*) as count
+            FROM paper_positions WHERE status IN ('open','pending_open')
+        """).fetchone()
+        closed_rows = conn.execute("""
+            SELECT COUNT(*) as total, SUM(pnl) as total_pnl,
+                   SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins
+            FROM paper_positions WHERE status = 'closed'
+        """).fetchone()
+    deployed = open_rows["deployed"] or 0.0
+    return {
+        "total_capital":   5000.0,
+        "deployed_capital": deployed,
+        "available_capital": 5000.0 - deployed,
+        "open_positions":  open_rows["count"] or 0,
+        "total_trades":    closed_rows["total"] or 0,
+        "total_pnl":       round(closed_rows["total_pnl"] or 0, 2),
+        "wins":            closed_rows["wins"] or 0,
+        "win_rate":        round((closed_rows["wins"] or 0) / max(closed_rows["total"] or 1, 1) * 100, 1),
+    }
+
+
+def get_closed_trades(limit: int = 50) -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM paper_positions
+            WHERE status = 'closed'
+            ORDER BY closed_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_score_snapshot(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO score_snapshots (ticker, score, label, window, recorded_at)
+            VALUES (:ticker, :score, :label, :window, :recorded_at)
+        """, data)
+
+
+def get_position_score_history(ticker: str, limit: int = 5) -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT score, label, recorded_at FROM score_snapshots
+            WHERE ticker = ?
+            ORDER BY recorded_at DESC
+            LIMIT ?
+        """, (ticker, limit)).fetchall()
+        return [dict(r) for r in rows]

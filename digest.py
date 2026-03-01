@@ -22,6 +22,13 @@ from database import (
     insert_digest,
 )
 
+try:
+    from eia import get_todays_eia_data
+    from sec import get_todays_sec_filings
+except ImportError:
+    get_todays_eia_data = lambda: []
+    get_todays_sec_filings = lambda: []
+
 logger = logging.getLogger(__name__)
 
 ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY")
@@ -273,8 +280,9 @@ def aggregate_news_sentiment(items: list[dict], commodity_config: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def generate_narrative(price_sentiments: dict, news_sentiments: dict,
-                        price_data: dict) -> str:
-    """Single cheap LLM call to produce the digest narrative."""
+                        price_data: dict, eia_data: list = None,
+                        sec_filings: list = None) -> str:
+    """Sonnet LLM call — includes EIA inventory and SEC filing context when available."""
     if not ANTHROPIC_API_KEY:
         return "Narrative generation unavailable — ANTHROPIC_API_KEY not set."
 
@@ -290,6 +298,21 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             f"  Top headlines: {'; '.join(h['title'] for h in ns.get('top_headlines', []))}"
         )
 
+    # Build supplemental context from EIA and SEC data
+    eia_context = ""
+    if eia_data:
+        for r in eia_data:
+            rtype = r.get("report_type", "").replace("_", " ").title()
+            eia_context += f"\n  EIA {rtype}: {r.get('label','')} (period: {r.get('period','')})"
+
+    sec_context = ""
+    if sec_filings:
+        import json as _json
+        for f in (sec_filings or [])[:5]:
+            labels = _json.loads(f.get("item_labels", "[]"))
+            label_str = ", ".join(labels) if labels else f.get("title", "")[:60]
+            sec_context += f"\n  {f.get('ticker','')} {f.get('filing_type','')}: {label_str} ({f.get('filed_at','')})"
+
     prompt = (
         "You are a sharp, opinionated energy markets analyst writing the Daily Energy Jerkoff — "
         "a no-BS morning briefing for serious energy investors. "
@@ -299,7 +322,9 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         "(3) the one thing readers should be watching today. "
         "Be direct, use precise language, no fluff. Don't start with 'Good morning'. "
         "Do not use bullet points. Write in flowing paragraphs.\n\n"
-        "Market data:\n" + "\n\n".join(context)
+        "Market data:\n" + "\n\n".join(context) +
+        ("\n\nEIA Inventory Data released today:" + eia_context if eia_context else "") +
+        ("\n\nSEC Material Filings (last 36h):" + sec_context if sec_context else "")
     )
 
     try:
@@ -311,8 +336,8 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5",
-                "max_tokens": 400,
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 700,
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
@@ -935,13 +960,26 @@ def generate_digest():
         for key, config in COMMODITIES.items()
     }
 
-    # 5. LLM narrative
-    narrative = generate_narrative(price_sentiments, news_sentiments, price_data)
+    # 5. Fetch EIA and SEC data
+    try:
+        eia_data = get_todays_eia_data()
+    except Exception:
+        eia_data = []
+    try:
+        sec_filings = get_todays_sec_filings()
+    except Exception:
+        sec_filings = []
 
-    # 6. Render HTML
+    # 6. LLM narrative (Sonnet)
+    narrative = generate_narrative(
+        price_sentiments, news_sentiments, price_data,
+        eia_data=eia_data, sec_filings=sec_filings
+    )
+
+    # 7. Render HTML
     html = render_html(date_str, price_sentiments, news_sentiments, narrative, price_data)
 
-    # 7. Store in DB
+    # 8. Store in DB
     insert_digest({
         "date_str": date_str,
         "html": html,
