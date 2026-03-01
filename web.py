@@ -147,10 +147,16 @@ def stats():
     equity_signals = get_equity_sentiment_all()
 
     def poll_rows(rows):
-        return "".join(
-            f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td>"
-            f"<td style="color:{'#ef4444' if r[3] else '#22c55e'}">{r[3] or 'OK'}</td>"
-            f"<td>{r[4]}</td></tr>" for r in rows)
+        result = []
+        for r in rows:
+            color = '#ef4444' if r[3] else '#22c55e'
+            status = r[3] or 'OK'
+            result.append(
+                f'<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td>'
+                f'<td style="color:{color}">{status}</td>'
+                f'<td>{r[4]}</td></tr>'
+            )
+        return ''.join(result)
 
     rss_polls_html = poll_rows(rss_polls) or "<tr><td colspan='5' style='color:#6b6560'>No RSS polls logged yet</td></tr>"
     av_polls_html = poll_rows(av_polls) or "<tr><td colspan='5' style='color:#6b6560'>No AV polls logged yet</td></tr>"
