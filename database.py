@@ -256,3 +256,267 @@ def get_latest_digest() -> dict | None:
             SELECT * FROM digests ORDER BY generated_at DESC LIMIT 1
         """).fetchone()
         return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# New tables — added for sentiment engine, earnings, and report history
+# ---------------------------------------------------------------------------
+
+def init_new_tables():
+    """Call this from init_db() to add new tables without dropping existing ones."""
+    with get_conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS equity_sentiment (
+                ticker          TEXT PRIMARY KEY,
+                name            TEXT,
+                commodity       TEXT,
+                composite_score REAL,
+                news_score      REAL,
+                price_score     REAL,
+                transcript_score REAL,
+                label           TEXT,
+                color           TEXT,
+                updated_at      TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sentiment_history (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                commodity       TEXT NOT NULL,
+                score           REAL,
+                label           TEXT,
+                equity_count    INTEGER,
+                recorded_at     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sh_commodity ON sentiment_history(commodity);
+            CREATE INDEX IF NOT EXISTS idx_sh_recorded  ON sentiment_history(recorded_at);
+
+            CREATE TABLE IF NOT EXISTS earnings_watch (
+                ticker          TEXT PRIMARY KEY,
+                report_date     TEXT,
+                days_until      INTEGER,
+                in_watch        INTEGER DEFAULT 0,
+                fiscal_quarter  TEXT,
+                updated_at      TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS earnings_transcripts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker          TEXT NOT NULL,
+                fiscal_quarter  TEXT NOT NULL,
+                report_date     TEXT,
+                transcript_raw  TEXT,
+                summary         TEXT,
+                sentiment_score REAL,
+                generated_at    TEXT NOT NULL,
+                UNIQUE(ticker, fiscal_quarter)
+            );
+            CREATE INDEX IF NOT EXISTS idx_et_ticker ON earnings_transcripts(ticker);
+
+            CREATE TABLE IF NOT EXISTS evening_digests (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                date_str        TEXT NOT NULL,
+                html            TEXT NOT NULL,
+                narrative       TEXT,
+                generated_at    TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS weekly_digests (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_str        TEXT NOT NULL,
+                html            TEXT NOT NULL,
+                narrative       TEXT,
+                generated_at    TEXT NOT NULL
+            );
+        """)
+
+
+# --- Equity sentiment ---
+
+def upsert_equity_sentiment(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO equity_sentiment
+                (ticker, name, commodity, composite_score, news_score, price_score,
+                 transcript_score, label, color, updated_at)
+            VALUES
+                (:ticker, :name, :commodity, :composite_score, :news_score, :price_score,
+                 :transcript_score, :label, :color, :updated_at)
+            ON CONFLICT(ticker) DO UPDATE SET
+                name=excluded.name, commodity=excluded.commodity,
+                composite_score=excluded.composite_score, news_score=excluded.news_score,
+                price_score=excluded.price_score, transcript_score=excluded.transcript_score,
+                label=excluded.label, color=excluded.color, updated_at=excluded.updated_at
+        """, data)
+
+
+def get_equity_sentiment_all() -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM equity_sentiment ORDER BY composite_score DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+# --- Sentiment history ---
+
+def insert_sentiment_history(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO sentiment_history (commodity, score, label, equity_count, recorded_at)
+            VALUES (:commodity, :score, :label, :equity_count, :recorded_at)
+        """, data)
+
+
+def get_sentiment_history(commodity: str, days: int = 30) -> list:
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM sentiment_history
+            WHERE commodity = ? AND recorded_at >= ?
+            ORDER BY recorded_at ASC
+        """, (commodity, cutoff)).fetchall()
+        return [dict(r) for r in rows]
+
+
+# --- Earnings ---
+
+def upsert_earnings_watch(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO earnings_watch
+                (ticker, report_date, days_until, in_watch, fiscal_quarter, updated_at)
+            VALUES
+                (:ticker, :report_date, :days_until, :in_watch, :fiscal_quarter, :updated_at)
+            ON CONFLICT(ticker) DO UPDATE SET
+                report_date=excluded.report_date, days_until=excluded.days_until,
+                in_watch=excluded.in_watch, fiscal_quarter=excluded.fiscal_quarter,
+                updated_at=excluded.updated_at
+        """, data)
+
+
+def get_earnings_watch_tickers() -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ticker FROM earnings_watch WHERE in_watch = 1
+        """).fetchall()
+        return [r[0] for r in rows]
+
+
+def get_earnings_watch_rows() -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM earnings_watch WHERE in_watch = 1
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_earnings_transcript(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO earnings_transcripts
+                (ticker, fiscal_quarter, report_date, transcript_raw, summary, sentiment_score, generated_at)
+            VALUES
+                (:ticker, :fiscal_quarter, :report_date, :transcript_raw, :summary, :sentiment_score, :generated_at)
+        """, data)
+
+
+def is_transcript_stored(ticker: str, fiscal_quarter: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT 1 FROM earnings_transcripts WHERE ticker = ? AND fiscal_quarter = ?
+        """, (ticker, fiscal_quarter)).fetchone()
+        return row is not None
+
+
+def get_latest_transcript_sentiment(ticker: str) -> tuple | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT sentiment_score, generated_at FROM earnings_transcripts
+            WHERE ticker = ? ORDER BY generated_at DESC LIMIT 1
+        """, (ticker,)).fetchone()
+        return (row[0], row[1]) if row else None
+
+
+def get_recent_transcripts(days: int = 7) -> list:
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ticker, fiscal_quarter, report_date, summary, sentiment_score, generated_at
+            FROM earnings_transcripts WHERE generated_at >= ?
+            ORDER BY generated_at DESC
+        """, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+# --- News queries ---
+
+def get_last_n_days_av_items(ticker: str, days: int = 3) -> list:
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM alphavantage_items
+            WHERE query_value = ? AND ingested_at >= ?
+            ORDER BY ingested_at DESC
+        """, (ticker, cutoff)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_last_24h_av_items_by_topic(topics: list) -> list:
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM alphavantage_items WHERE ingested_at >= ?
+            ORDER BY ingested_at DESC
+        """, (cutoff,)).fetchall()
+        items = [dict(r) for r in rows]
+        import json as _json
+        return [
+            i for i in items
+            if any(t in _json.loads(i.get("topics", "[]")) for t in topics)
+        ]
+
+
+# --- Evening / weekly digests ---
+
+def insert_evening_digest(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO evening_digests (date_str, html, narrative, generated_at)
+            VALUES (:date_str, :html, :narrative, :generated_at)
+        """, data)
+
+
+def get_latest_evening_digest() -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT * FROM evening_digests ORDER BY generated_at DESC LIMIT 1
+        """).fetchone()
+        return dict(row) if row else None
+
+
+def insert_weekly_digest(data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO weekly_digests (week_str, html, narrative, generated_at)
+            VALUES (:week_str, :html, :narrative, :generated_at)
+        """, data)
+
+
+def get_latest_weekly_digest() -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT * FROM weekly_digests ORDER BY generated_at DESC LIMIT 1
+        """).fetchone()
+        return dict(row) if row else None
+
+
+def get_week_digests(days: int = 7) -> list:
+    """Get all morning digests from the past N days for weekly wrap."""
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT date_str, narrative, price_sentiments, news_sentiments, generated_at
+            FROM digests WHERE generated_at >= ?
+            ORDER BY generated_at ASC
+        """, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]

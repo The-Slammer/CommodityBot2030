@@ -4,7 +4,6 @@ main.py — Entrypoint.
 
 import logging
 import os
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,23 +18,25 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    from database import init_db
+    from database import init_db, init_new_tables
     from config import RSS_FEEDS, YOUTUBE_CHANNELS, ALPHAVANTAGE_SOURCES
     from rss import poll_all_feeds
     from youtube import poll_all_channels
     from alphavantage import poll_all_sources
+    from sentiment import update_all_equity_signals
     from jobs import start_scheduler
 
-    logger.info("Energy Agent starting up")
+    logger.info("CommodityBot starting up")
 
     init_db()
+    init_new_tables()
 
-    logger.info("Running initial poll...")
+    logger.info("Running initial polls...")
     poll_all_feeds(RSS_FEEDS)
     poll_all_sources(ALPHAVANTAGE_SOURCES)
     poll_all_channels(YOUTUBE_CHANNELS)
+    update_all_equity_signals(ALPHAVANTAGE_SOURCES)
 
-    # Blocks forever — web server runs in background thread inside scheduler
     start_scheduler()
 
 
