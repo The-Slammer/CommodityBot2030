@@ -19,6 +19,13 @@ RSS_FEEDS = [
 
 YOUTUBE_CHANNELS = [
     {"name": "Macro Voices", "channel_id": "UCG7K2qx9bMpHBiAJTHSRrxg", "source_type": "podcast", "credibility_tier": 2, "topics": ["oil", "natural_gas", "uranium", "macro"], "post_window_utc": (14, 16)},
+    {"name": "Bloomberg Television", "channel_id": "UCIALMKvObZNtJ6AmdCLP7Lg", "source_type": "news_video", "credibility_tier": 1, "topics": ["oil", "natural_gas", "uranium", "macro"], "post_window_utc": (13, 22)},
+    {"name": "Rule Investment Media", "channel_id": "UCLReD7YczIpNz-gDIVF1hdQ", "source_type": "podcast", "credibility_tier": 2, "topics": ["oil", "natural_gas", "uranium", "macro"], "post_window_utc": (14, 18)},
+    {"name": "Gareth Soloway", "channel_id": "UCwTu6kD2igaLMpxswtcdxlg", "source_type": "analyst", "credibility_tier": 2, "topics": ["oil", "macro"], "post_window_utc": (14, 18)},
+    {"name": "Verified Investing", "channel_id": "UCZ-J2m1AUSLnifUEKam5_dA", "source_type": "analyst", "credibility_tier": 2, "topics": ["oil", "natural_gas", "macro"], "post_window_utc": (14, 18)},
+    {"name": "Clem Chambers", "channel_id": "UCZrMDqkXFpsuD5fSqreih8g", "source_type": "analyst", "credibility_tier": 2, "topics": ["oil", "natural_gas", "macro"], "post_window_utc": (14, 18)},
+    {"name": "Kitco News", "channel_id": "UC9ijza42jVR3T6b8bColgvg", "source_type": "news_video", "credibility_tier": 1, "topics": ["oil", "natural_gas", "uranium", "macro"], "post_window_utc": (13, 20)},
+    {"name": "Bravos Research", "channel_id": "UCOHxDwCcOzBaLkeTazanwcw", "source_type": "analyst", "credibility_tier": 2, "topics": ["oil", "natural_gas", "uranium"], "post_window_utc": (14, 18)},
     {"name": "Energy News Beat", "channel_id": "UCaaa_replace_with_real_id", "source_type": "news_video", "credibility_tier": 2, "topics": ["oil", "natural_gas"], "post_window_utc": (13, 15)},
     {"name": "Uranium Royalties Channel", "channel_id": "UCbbb_replace_with_real_id", "source_type": "company_channel", "credibility_tier": 3, "topics": ["uranium"], "post_window_utc": (15, 17)},
 ]
