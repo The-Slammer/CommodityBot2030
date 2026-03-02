@@ -26,6 +26,7 @@ YOUTUBE_CHANNELS = [
     {"name": "Bravos Research", "channel_id": "UCOHxDwCcOzBaLkeTazanwcw", "source_type": "analyst", "credibility_tier": 2, "topics": ["oil", "natural_gas", "uranium"], "post_window_utc": (14, 18)},
     {"name": "Energy News Beat", "channel_id": "UCaaa_replace_with_real_id", "source_type": "news_video", "credibility_tier": 2, "topics": ["oil", "natural_gas"], "post_window_utc": (13, 15)},
     {"name": "Uranium Royalties Channel", "channel_id": "UCbbb_replace_with_real_id", "source_type": "company_channel", "credibility_tier": 3, "topics": ["uranium"], "post_window_utc": (15, 17)},
+    {"name": "Tim Dillon Show", "channel_id": "UC4woSp8ITBoYDmjkukhEhxg", "source_type": "style_reference", "credibility_tier": 1, "topics": ["macro", "commentary"], "post_window_utc": (0, 23), "style_reference": True, "poll_day": "sunday"},
 ]
 
 ALPHAVANTAGE_SOURCES = [
