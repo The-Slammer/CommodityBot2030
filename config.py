@@ -68,6 +68,60 @@ ALPHAVANTAGE_SOURCES = [
     {"name": "W&T Offshore (WTI)", "query_type": "ticker", "query_value": "WTI", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Ring Energy (REI)", "query_type": "ticker", "query_value": "REI", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
 
+
+    # =========================================================
+    # OIL & GAS — EXPANDED WATCHLIST (E&P, Royalties, Midstream)
+    # =========================================================
+
+    # Large/Mid-cap E&P additions
+    {"name": "Ovintiv (OVV)", "query_type": "ticker", "query_value": "OVV", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Antero Resources (AR)", "query_type": "ticker", "query_value": "AR", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Chord Energy (CHRD)", "query_type": "ticker", "query_value": "CHRD", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Matador Resources (MTDR)", "query_type": "ticker", "query_value": "MTDR", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "SM Energy (SM)", "query_type": "ticker", "query_value": "SM", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Murphy Oil (MUR)", "query_type": "ticker", "query_value": "MUR", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Gulfport Energy (GPOR)", "query_type": "ticker", "query_value": "GPOR", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Range Resources (RRC)", "query_type": "ticker", "query_value": "RRC", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "CNX Resources (CNX)", "query_type": "ticker", "query_value": "CNX", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Crescent Energy (CRGY)", "query_type": "ticker", "query_value": "CRGY", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Permian Resources (PR)", "query_type": "ticker", "query_value": "PR", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Magnolia Oil & Gas (MGY)", "query_type": "ticker", "query_value": "MGY", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Talos Energy (TALO)", "query_type": "ticker", "query_value": "TALO", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Kosmos Energy (KOS)", "query_type": "ticker", "query_value": "KOS", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "SandRidge Energy (SD)", "query_type": "ticker", "query_value": "SD", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "California Resources (CRC)", "query_type": "ticker", "query_value": "CRC", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Viper Energy (VNOM)", "query_type": "ticker", "query_value": "VNOM", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Mach Natural Resources (MNR)", "query_type": "ticker", "query_value": "MNR", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Infinity Natural Resources (INR)", "query_type": "ticker", "query_value": "INR", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "BKV Corp (BKV)", "query_type": "ticker", "query_value": "BKV", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Venture Global (VG)", "query_type": "ticker", "query_value": "VG", "source_type": "equity_news", "credibility_tier": 1, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Amplify Energy (AMPY)", "query_type": "ticker", "query_value": "AMPY", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Sable Offshore (SOC)", "query_type": "ticker", "query_value": "SOC", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Diversified Energy (DEC)", "query_type": "ticker", "query_value": "DEC", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Gran Tierra Energy (GTE)", "query_type": "ticker", "query_value": "GTE", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "VAALCO Energy (EGY)", "query_type": "ticker", "query_value": "EGY", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "HighPeak Energy (HPK)", "query_type": "ticker", "query_value": "HPK", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Vista Energy ADR (VIST)", "query_type": "ticker", "query_value": "VIST", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Baytex Energy (BTE)", "query_type": "ticker", "query_value": "BTE", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Canadian Natural Resources (CNQ)", "query_type": "ticker", "query_value": "CNQ", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Woodside Energy (WDS)", "query_type": "ticker", "query_value": "WDS", "source_type": "equity_news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Tamboran Resources (TBN)", "query_type": "ticker", "query_value": "TBN", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
+    {"name": "Greenfire Resources (GFR)", "query_type": "ticker", "query_value": "GFR", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Granite Ridge Resources (GRNT)", "query_type": "ticker", "query_value": "GRNT", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+
+    # Royalty & Income names
+    {"name": "Black Stone Minerals (BSM)", "query_type": "ticker", "query_value": "BSM", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Dorchester Minerals (DMLP)", "query_type": "ticker", "query_value": "DMLP", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Landbridge Company (LB)", "query_type": "ticker", "query_value": "LB", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Cross Timbers Royalty (CRT)", "query_type": "ticker", "query_value": "CRT", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+
+    # Smaller E&P
+    {"name": "Prairie Operating (PROP)", "query_type": "ticker", "query_value": "PROP", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "TXO Partners (TXO)", "query_type": "ticker", "query_value": "TXO", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Evolution Petroleum (EPM)", "query_type": "ticker", "query_value": "EPM", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Riley Exploration Permian (REPX)", "query_type": "ticker", "query_value": "REPX", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    {"name": "Obsidian Energy (OBE)", "query_type": "ticker", "query_value": "OBE", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+
     # =========================================================
     # URANIUM — NYSE / NYSE American listed
     # Non-US listed (ASX, TSX, London) excluded — not in AV
