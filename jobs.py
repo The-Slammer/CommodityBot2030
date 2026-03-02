@@ -185,7 +185,7 @@ def start_scheduler():
     scheduler.add_job(run_rss_job, IntervalTrigger(minutes=15), id="rss_poll", misfire_grace_time=60)
     scheduler.add_job(run_alphavantage_job, IntervalTrigger(minutes=AV_POLL_INTERVAL), id="av_poll", misfire_grace_time=120)
     scheduler.add_job(run_sec_job, IntervalTrigger(minutes=AV_POLL_INTERVAL), id="sec_poll", misfire_grace_time=120)
-    scheduler.add_job(run_youtube_job, IntervalTrigger(minutes=30), id="yt_poll", misfire_grace_time=60)
+    scheduler.add_job(run_youtube_job, IntervalTrigger(hours=6), id="yt_poll", misfire_grace_time=300)
 
     # Daily reports (PST)
     scheduler.add_job(run_morning_digest_job, CronTrigger(hour=14, minute=15, timezone="UTC"), id="morning_digest", misfire_grace_time=300)
