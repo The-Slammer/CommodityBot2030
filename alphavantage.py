@@ -144,19 +144,35 @@ def poll_source(source_config: dict) -> tuple[int, int]:
 def poll_all_sources(sources: list[dict]):
     """
     Poll all configured AlphaVantage sources.
-    Adds a small delay between calls to respect rate limits.
+    Chunks requests into batches of 60 per minute to stay safely
+    under the 75/min rate limit regardless of how many tickers are tracked.
     """
-    total_found = 0
-    total_new = 0
+    CHUNK_SIZE   = 60   # requests per chunk
+    CHUNK_WINDOW = 62   # seconds to wait after each chunk (full minute + 2s buffer)
+    CALL_DELAY   = 0.5  # seconds between individual calls within a chunk
+
+    total_found  = 0
+    total_new    = 0
+    chunk_start  = time.time()
 
     for i, source in enumerate(sources):
         found, new = poll_source(source)
         total_found += found
-        total_new += new
+        total_new   += new
 
-        # Brief pause between API calls to avoid rate limiting
-        if i < len(sources) - 1:
-            time.sleep(1.5)
+        # After every 60 requests, ensure a full minute has elapsed
+        if (i + 1) % CHUNK_SIZE == 0 and i < len(sources) - 1:
+            elapsed = time.time() - chunk_start
+            wait = max(0, CHUNK_WINDOW - elapsed)
+            if wait > 0:
+                logger.info(
+                    "AV rate limit pause — %d requests sent, waiting %.1fs before next chunk",
+                    i + 1, wait
+                )
+                time.sleep(wait)
+            chunk_start = time.time()
+        elif i < len(sources) - 1:
+            time.sleep(CALL_DELAY)
 
     logger.info(
         "AlphaVantage cycle complete — %d found, %d new",
