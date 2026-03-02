@@ -5,16 +5,13 @@ config.py — All source definitions.
 import os
 
 RSS_FEEDS = [
-    {"name": "S&P Global Commodity Insights", "url": "https://www.spglobal.com/commodityinsights/rss", "source_type": "market_data", "credibility_tier": 1, "topics": ["oil", "natural_gas", "uranium"]},
-    {"name": "Reuters Energy", "url": "https://feeds.reuters.com/reuters/energyNews", "source_type": "news", "credibility_tier": 1, "topics": ["oil", "natural_gas", "uranium"]},
-    {"name": "Platts Oil News", "url": "https://www.spglobal.com/platts/rss/oil", "source_type": "market_data", "credibility_tier": 1, "topics": ["oil"]},
+    # Verified working feeds only
     {"name": "World Nuclear News", "url": "https://www.world-nuclear-news.org/rss", "source_type": "trade_publication", "credibility_tier": 2, "topics": ["uranium", "nuclear"]},
     {"name": "Uranium Insider (Substack)", "url": os.getenv("URANIUM_INSIDER_FEED", "https://uraniuminsider.substack.com/feed"), "source_type": "newsletter", "credibility_tier": 2, "topics": ["uranium"]},
     {"name": "OilPrice.com", "url": "https://oilprice.com/rss/main", "source_type": "news", "credibility_tier": 2, "topics": ["oil", "natural_gas"]},
-    {"name": "Natural Gas Intelligence", "url": "https://www.naturalgasintel.com/rss", "source_type": "trade_publication", "credibility_tier": 1, "topics": ["natural_gas"]},
     {"name": "Energy Monitor", "url": "https://www.energymonitor.ai/feed", "source_type": "news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "uranium", "nuclear"]},
-    {"name": "EIA News", "url": "https://www.eia.gov/rss/news.xml", "source_type": "government", "credibility_tier": 1, "topics": ["oil", "natural_gas", "uranium"]},
     {"name": "Rigzone", "url": "https://www.rigzone.com/news/rss/rigzone_latest.aspx", "source_type": "trade_publication", "credibility_tier": 2, "topics": ["oil", "natural_gas"]},
+    # Removed (broken): S&P Global, Reuters Energy, Platts, Natural Gas Intelligence, EIA News
 ]
 
 YOUTUBE_CHANNELS = [
