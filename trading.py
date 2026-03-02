@@ -45,12 +45,16 @@ from database import (
     get_portfolio_summary,
     update_position_price,
     get_closed_trades,
+    get_recent_eia_reports,
+    get_recent_sec_filings,
 )
 
 logger = logging.getLogger(__name__)
 
 ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "")
-AV_BASE = "https://www.alphavantage.co/query"
+ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
+AV_BASE    = "https://www.alphavantage.co/query"
+CLAUDE_URL = "https://api.anthropic.com/v1/messages"
 ET = ZoneInfo("America/New_York")
 
 TOTAL_CAPITAL       = 5000.0
@@ -212,6 +216,229 @@ def _combined_score(position: dict) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Sonnet decision layer
+# ---------------------------------------------------------------------------
+
+def _build_market_context() -> str:
+    """Assemble recent EIA and SEC context for the model prompt."""
+    lines = []
+
+    try:
+        eia = get_recent_eia_reports(hours=48)
+        if eia:
+            lines.append("RECENT EIA DATA:")
+            for r in eia[:3]:
+                lines.append(f"  {r.get('label','EIA')} | {r.get('report_type','')} | period {r.get('period','')} | value {r.get('value','')} {r.get('unit','')} (prev: {r.get('previous','')})")
+    except Exception:
+        pass
+
+    try:
+        sec = get_recent_sec_filings(hours=48, high_priority_only=True)
+        if sec:
+            lines.append("RECENT SEC FILINGS (high priority):")
+            for f in sec[:5]:
+                labels = f.get('item_labels') or '[]'
+                if isinstance(labels, str):
+                    try: labels = json.loads(labels)
+                    except: pass
+                label_str = ', '.join(labels) if isinstance(labels, list) else str(labels)
+                lines.append(f"  {f.get('ticker','')} {f.get('filing_type','')} — {label_str} ({(f.get('filed_at') or '')[:10]})")
+    except Exception:
+        pass
+
+    return '\n'.join(lines) if lines else "No recent EIA or SEC data in the last 48 hours."
+
+
+def _call_sonnet(prompt: str) -> str:
+    """Call Claude Sonnet and return the text response."""
+    try:
+        r = requests.post(
+            CLAUDE_URL,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 600,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("content", [{}])[0].get("text", "").strip()
+    except Exception as e:
+        logger.error("Sonnet call failed: %s", e)
+        return ""
+
+
+def _sonnet_entry_decision(candidates: list[dict], open_positions: list[dict],
+                            available_capital: float, market_context: str) -> list[dict]:
+    """
+    Pass pre-filtered entry candidates to Sonnet for final judgment.
+    Returns list of approved candidates with model sizing and reasoning.
+    """
+    if not candidates:
+        return []
+
+    # Build candidate summaries
+    candidate_lines = []
+    for c in candidates:
+        sig = c["signal"]
+        delta = _get_score_delta(sig["ticker"])
+        history = get_position_score_history(sig["ticker"], limit=4)
+        score_trail = " → ".join(f"{h['score']:.3f}" for h in reversed(history)) if history else "no history"
+        candidate_lines.append(
+            f"  {sig['ticker']} ({sig.get('commodity','')}) | "
+            f"composite: {sig.get('composite_score',0):.3f} | "
+            f"label: {sig.get('label','')} | "
+            f"news: {sig.get('news_score',0):.3f} | "
+            f"price_momentum: {sig.get('price_score',0):.3f} | "
+            f"transcript: {sig.get('transcript_score',0):.3f} | "
+            f"delta: {delta:+.3f} | "
+            f"score trail: {score_trail} | "
+            f"rule reason: {c['reason']}"
+        )
+
+    # Build open position summary
+    open_lines = []
+    for p in open_positions:
+        entry = p.get('entry_price') or 0
+        current = p.get('current_price') or entry
+        pnl_pct = round((current - entry) / entry * 100, 1) if entry else 0
+        open_lines.append(
+            f"  {p['ticker']} | size: ${p.get('position_size',0):.0f} | "
+            f"entry score: {p.get('entry_score',0):.3f} | "
+            f"current signal: {p.get('current_composite',0):.3f} | "
+            f"unrealised P&L: {pnl_pct:+.1f}%"
+        )
+
+    prompt = f"""You are the decision engine for CommodityBot, an automated energy markets paper trading system.
+
+PORTFOLIO STATE:
+  Available capital: ${available_capital:.0f} of $5,000 total
+  Max positions: 5 | Min position: $500 | Max position: $2,000
+  Open positions ({len(open_positions)}):
+{chr(10).join(open_lines) if open_lines else '  None'}
+
+ENTRY CANDIDATES (pre-filtered by rule engine):
+{chr(10).join(candidate_lines)}
+
+MARKET CONTEXT:
+{market_context}
+
+TASK:
+Review each candidate and decide whether to approve or reject the trade.
+For approved trades, specify the position size ($500-$2,000 based on conviction).
+Consider: signal strength, momentum trajectory, component balance (news vs price vs transcript), market context, portfolio concentration, and available capital.
+
+Respond in this exact JSON format only, no other text:
+{{
+  "decisions": [
+    {{
+      "ticker": "XOM",
+      "approved": true,
+      "size": 1200,
+      "reasoning": "One concise sentence explaining the decision."
+    }}
+  ]
+}}"""
+
+    response = _call_sonnet(prompt)
+    if not response:
+        logger.warning("Sonnet entry decision returned empty — falling back to rule-based sizing")
+        return candidates  # fallback: approve all rule-based candidates
+
+    try:
+        # Strip markdown fences if present
+        clean = response.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(clean)
+        decisions = {d["ticker"]: d for d in parsed.get("decisions", [])}
+
+        approved = []
+        for c in candidates:
+            ticker = c["ticker"]
+            decision = decisions.get(ticker, {})
+            if decision.get("approved", False):
+                c["model_size"] = max(MIN_POSITION_SIZE, min(MAX_POSITION_SIZE,
+                                      float(decision.get("size", 0))))
+                c["model_reasoning"] = decision.get("reasoning", "Approved by model.")
+                approved.append(c)
+                logger.info("Sonnet APPROVED: %s | $%.0f | %s",
+                            ticker, c["model_size"], c["model_reasoning"])
+            else:
+                reasoning = decision.get("reasoning", "No reason given.")
+                logger.info("Sonnet REJECTED: %s | %s", ticker, reasoning)
+
+        return approved
+
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.error("Sonnet response parse failed: %s | raw: %s", e, response[:200])
+        return candidates  # fallback
+
+
+def _sonnet_exit_decision(position: dict, signal: dict, market_context: str) -> tuple[bool, str]:
+    """
+    Called for borderline exits — score declining but above hard floor.
+    Model decides whether to hold or close.
+    """
+    ticker = position["ticker"]
+    history = get_position_score_history(ticker, limit=5)
+    score_trail = " → ".join(f"{h['score']:.3f}" for h in reversed(history)) if history else "no history"
+
+    entry = position.get('entry_price') or 0
+    current = position.get('current_price') or entry
+    pnl_pct = round((current - entry) / entry * 100, 1) if entry else 0
+    days_held = 0
+    try:
+        opened = datetime.fromisoformat(position.get('opened_at', ''))
+        days_held = (datetime.utcnow() - opened).days
+    except Exception:
+        pass
+
+    prompt = f"""You are the exit decision engine for CommodityBot, an energy markets paper trading system.
+
+POSITION:
+  Ticker: {ticker} ({position.get('commodity','')})
+  Entry score: {position.get('entry_score',0):.3f} | Entry label: {position.get('entry_label','')}
+  Current composite score: {signal.get('composite_score',0):.3f} | Current label: {signal.get('label','')}
+  Score trail (oldest → newest): {score_trail}
+  News score: {signal.get('news_score',0):.3f} | Price momentum: {signal.get('price_score',0):.3f}
+  Position size: ${position.get('position_size',0):.0f}
+  Unrealised P&L: {pnl_pct:+.1f}%
+  Days held: {days_held}
+
+MARKET CONTEXT:
+{market_context}
+
+TASK:
+The rule engine has flagged this position as a borderline exit candidate — score is declining but above the hard Neutral floor (0.15).
+Decide: should we close now, or hold and reassess at the next window?
+
+Respond in this exact JSON format only, no other text:
+{{
+  "close": true,
+  "reasoning": "One concise sentence."
+}}"""
+
+    response = _call_sonnet(prompt)
+    if not response:
+        return False, "Sonnet unavailable — holding"
+
+    try:
+        clean = response.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(clean)
+        should_close = parsed.get("close", False)
+        reasoning = parsed.get("reasoning", "Model decision.")
+        return should_close, f"Sonnet: {reasoning}"
+    except Exception as e:
+        logger.error("Sonnet exit parse failed: %s", e)
+        return False, "Parse error — holding"
+
+
+# ---------------------------------------------------------------------------
 # Core decision engine
 # ---------------------------------------------------------------------------
 
@@ -241,7 +468,10 @@ def run_trading_window(window_name: str):
             "recorded_at": now_str,
         })
 
-    # --- 2. Evaluate exits ---
+    # --- 2. Build market context once (shared for all model calls this window) ---
+    market_context = _build_market_context()
+
+    # --- 3. Evaluate exits ---
     open_positions = get_open_positions()
     closed_tickers = []
 
@@ -249,22 +479,31 @@ def run_trading_window(window_name: str):
         ticker = pos["ticker"]
         signal = all_signals.get(ticker)
         should_exit, reason = _should_exit(pos, signal)
+
         if should_exit:
+            # Hard exits (Neutral floor, signal lost) — no model needed
             close_position(pos["id"], reason=reason, closed_at=now_str)
             closed_tickers.append(ticker)
-            logger.info("EXIT queued: %s — %s", ticker, reason)
+            logger.info("EXIT queued (hard): %s — %s", ticker, reason)
+        elif signal and signal.get("composite_score", 1) < 0.35:
+            # Borderline — ask Sonnet
+            close_now, model_reason = _sonnet_exit_decision(pos, signal, market_context)
+            if close_now:
+                close_position(pos["id"], reason=model_reason, closed_at=now_str)
+                closed_tickers.append(ticker)
+                logger.info("EXIT queued (model): %s — %s", ticker, model_reason)
 
     # Refresh open positions after exits
     open_positions = [p for p in open_positions if p["ticker"] not in closed_tickers]
 
-    # --- 3. Get portfolio state ---
+    # --- 4. Get portfolio state ---
     summary = get_portfolio_summary()
     deployed = summary.get("deployed_capital", 0.0)
     available = TOTAL_CAPITAL - deployed
     open_count = len(open_positions)
     open_tickers = {p["ticker"] for p in open_positions}
 
-    # --- 4. Find entry candidates ---
+    # --- 5. Find rule-based entry candidates ---
     candidates = []
     for ticker, signal in all_signals.items():
         if ticker in open_tickers:
@@ -278,26 +517,32 @@ def run_trading_window(window_name: str):
                 "score": signal.get("composite_score", 0),
             })
 
-    # Sort by score descending
     candidates.sort(key=lambda x: x["score"], reverse=True)
 
-    for candidate in candidates:
+    if not candidates:
+        logger.info("No entry candidates this window")
+        return
+
+    # --- 6. Sonnet approves/sizes from shortlist ---
+    approved = _sonnet_entry_decision(candidates, open_positions, available, market_context)
+
+    for candidate in approved:
         ticker = candidate["ticker"]
         score  = candidate["score"]
 
         if open_count >= MAX_POSITIONS:
-            # Check displacement — find weakest open position
+            # Displacement check — still rule-based for efficiency
             positions_with_combined = [
                 (p, _combined_score(p)) for p in open_positions
             ]
             weakest_pos, weakest_combined = min(
                 positions_with_combined, key=lambda x: x[1]
             )
-            new_combined = score  # new entry has no P&L yet
-            if new_combined > weakest_combined + 0.05:  # meaningful improvement
+            new_combined = score
+            if new_combined > weakest_combined + 0.05:
                 close_position(
                     weakest_pos["id"],
-                    reason=f"Displaced by stronger signal: {ticker} (score {score:.3f} vs {weakest_combined:.3f})",
+                    reason=f"Displaced by model-approved signal: {ticker} (score {score:.3f} vs {weakest_combined:.3f})",
                     closed_at=now_str,
                 )
                 open_positions = [p for p in open_positions if p["id"] != weakest_pos["id"]]
@@ -306,18 +551,21 @@ def run_trading_window(window_name: str):
                 open_count -= 1
                 logger.info("DISPLACE: %s evicted for %s", weakest_pos["ticker"], ticker)
             else:
-                logger.info("No displacement warranted for %s — existing positions stronger", ticker)
+                logger.info("No displacement warranted for %s", ticker)
                 continue
 
-        size = _calculate_position_size(score, available)
+        # Use model-recommended size, capped by available capital
+        size = min(candidate.get("model_size", _calculate_position_size(score, available)), available)
         if size < MIN_POSITION_SIZE:
             logger.info("Insufficient capital for %s (available: %.2f)", ticker, available)
             continue
 
         signal_data = candidate["signal"]
+        entry_reason = f"{candidate['reason']} | {candidate.get('model_reasoning', '')}"
+
         position_record = {
             "ticker": ticker,
-            "entry_reason": candidate["reason"],
+            "entry_reason": entry_reason,
             "entry_score": score,
             "entry_label": signal_data.get("label", ""),
             "position_size": size,
@@ -334,8 +582,8 @@ def run_trading_window(window_name: str):
         available -= size
         open_tickers.add(ticker)
         logger.info(
-            "ENTRY queued: %s | %s | $%.0f | score %.3f",
-            ticker, candidate["reason"], size, score
+            "ENTRY queued: %s | $%.0f | score %.3f | %s",
+            ticker, size, score, candidate.get("model_reasoning", "")
         )
 
 
