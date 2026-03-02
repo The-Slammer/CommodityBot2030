@@ -138,6 +138,14 @@ def trigger():
 @app.route("/stats")
 def stats():
     from database import get_conn
+    import os as _os
+    db_path = _os.getenv("DB_PATH", "/data/energy_agent.db")
+    try:
+        db_bytes = _os.path.getsize(db_path)
+        db_size = f"{db_bytes / 1_048_576:.1f} MB" if db_bytes >= 1_048_576 else f"{db_bytes / 1024:.0f} KB"
+    except Exception:
+        db_size = "unknown"
+
     with get_conn() as conn:
         rss_count = conn.execute("SELECT COUNT(*) FROM rss_items").fetchone()[0]
         av_count = conn.execute("SELECT COUNT(*) FROM alphavantage_items").fetchone()[0]
@@ -221,6 +229,7 @@ a{{color:#c9a84c;text-decoration:none}}
   <div class="count"><div class="n">{rss_count}</div><div class="l">RSS Items</div></div>
   <div class="count"><div class="n">{av_count}</div><div class="l">AV Items</div></div>
   <div class="count"><div class="n">{digest_count}</div><div class="l">Digests</div></div>
+  <div class="count"><div class="n">{db_size}</div><div class="l">Database Size</div></div>
 </div>
 
 <h2>EQUITY SIGNALS</h2>
