@@ -5,7 +5,8 @@ Schedule (UTC):
   RSS             — every 15 min
   AlphaVantage    — every 60 min
   SEC filings     — every 60 min (same cycle as AV)
-  YouTube         — every 30 min
+  YouTube         — every 6 hours (news channels)
+  Style reference — Sundays 18:00 UTC (Tim Dillon)
   Sentiment       — after every AV poll
   Earnings check  — daily 13:00 UTC (5 AM PST)
   Morning digest  — daily 14:15 UTC (6:15 AM PST)
@@ -87,7 +88,17 @@ def run_sec_job():
 
 def run_youtube_job():
     logger.info("=== YouTube poll cycle ===")
-    poll_all_channels(YOUTUBE_CHANNELS)
+    # Exclude style_reference channels — those run on their own schedule
+    news_channels = [c for c in YOUTUBE_CHANNELS if not c.get("style_reference")]
+    poll_all_channels(news_channels)
+
+
+def run_style_reference_job():
+    """Poll style_reference channels only — runs Sundays."""
+    style_channels = [c for c in YOUTUBE_CHANNELS if c.get("style_reference")]
+    if style_channels:
+        logger.info("=== Style reference poll (Tim Dillon) ===")
+        poll_all_channels(style_channels)
 
 
 def run_morning_digest_job():
@@ -186,6 +197,7 @@ def start_scheduler():
     scheduler.add_job(run_alphavantage_job, IntervalTrigger(minutes=AV_POLL_INTERVAL), id="av_poll", misfire_grace_time=120)
     scheduler.add_job(run_sec_job, IntervalTrigger(minutes=AV_POLL_INTERVAL), id="sec_poll", misfire_grace_time=120)
     scheduler.add_job(run_youtube_job, IntervalTrigger(hours=6), id="yt_poll", misfire_grace_time=300)
+    scheduler.add_job(run_style_reference_job, CronTrigger(day_of_week="sun", hour=18, minute=0), id="style_ref_poll", misfire_grace_time=3600)
 
     # Daily reports (PST)
     scheduler.add_job(run_morning_digest_job, CronTrigger(hour=14, minute=15, timezone="UTC"), id="morning_digest", misfire_grace_time=300)
