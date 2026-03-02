@@ -52,6 +52,7 @@ text-decoration:none;letter-spacing:0.08em">Evening Brief</a>
 <a href="/weekly" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
 text-decoration:none;letter-spacing:0.08em">Weekly Wrap</a>
 <a href="/portfolio" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em">Portfolio</a>
+<a href="/about" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em">About</a>
 <a href="/stats" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
 text-decoration:none;letter-spacing:0.08em;margin-left:auto">Stats →</a>
 </nav>"""
@@ -400,6 +401,79 @@ a{{color:#c9a84c;text-decoration:none}}
   </tr>
   {closed_rows}
 </table>
+
+</div></body></html>"""), mimetype="text/html")
+
+
+@app.route("/about")
+def about():
+    return Response(_wrap("""<!DOCTYPE html>
+<html><head><title>CommodityBot — About</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;font-size:13px;margin:0}
+.content{padding:2rem clamp(1.5rem,5vw,4rem);max-width:860px}
+h1{color:#c9a84c;font-size:1.1rem;letter-spacing:0.2em;margin-bottom:0.25rem}
+h2{color:#c9a84c;font-size:0.75rem;letter-spacing:0.15em;margin:2.5rem 0 0.75rem;border-bottom:1px solid #222;padding-bottom:0.5rem}
+p{color:#9a9490;line-height:1.8;margin:0 0 1rem;font-size:0.75rem}
+.tag{display:inline-block;border:1px solid #2a2a2a;color:#6b6560;font-size:0.58rem;padding:0.1rem 0.5rem;margin:0.2rem 0.2rem 0.2rem 0;letter-spacing:0.06em}
+.tag.highlight{border-color:#8a6f2e;color:#c9a84c}
+.source-row{display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 1.25rem}
+.source-card{background:#111;border:1px solid #1e1e1e;padding:0.65rem 0.9rem;min-width:160px;flex:1}
+.source-card .s-name{color:#e8e2d6;font-size:0.7rem;margin-bottom:0.2rem}
+.source-card .s-desc{color:#6b6560;font-size:0.6rem;line-height:1.5}
+ul{color:#9a9490;font-size:0.75rem;line-height:1.9;padding-left:1.2rem;margin:0 0 1rem}
+li{margin-bottom:0.1rem}
+.subtitle{color:#6b6560;font-size:0.62rem;letter-spacing:0.08em;margin-bottom:2rem}
+</style></head>
+<body><div class="content">
+
+<h1>COMMODITYBOT</h1>
+<div class="subtitle">AUTOMATED ENERGY MARKETS INTELLIGENCE SYSTEM</div>
+
+<p>CommodityBot is a personal research and paper trading system built to monitor energy markets around the clock. It ingests data from dozens of sources, scores equities across oil, natural gas, and uranium sectors, and uses that signal to make autonomous paper trading decisions — testing whether the data it collects actually translates into edge.</p>
+
+<p>It started as an experiment in building a system that thinks like an energy analyst: always watching, always updating, never sleeping. It runs 24/7 on a cloud server and publishes a morning report, evening brief, and weekly wrap — each written by the AI engine using everything it learned that day.</p>
+
+<h2>WHAT IT WATCHES</h2>
+
+<p>The system tracks 79 energy equities across oil & gas E&P, midstream, refining, oilfield services, royalty trusts, and uranium miners. Every hour it pulls fresh news and price data for each name, scores the sentiment, and updates a composite signal that blends news, price momentum, and earnings transcript analysis.</p>
+
+<div class="source-row">
+  <div class="source-card"><div class="s-name">AlphaVantage</div><div class="s-desc">Real-time news sentiment & price data for all 79 tracked equities</div></div>
+  <div class="source-card"><div class="s-name">EIA API</div><div class="s-desc">US crude inventories, nat gas storage, drilling productivity — direct from the government</div></div>
+  <div class="source-card"><div class="s-name">SEC EDGAR</div><div class="s-desc">8-K and 10-Q filings monitored in real time for material corporate events</div></div>
+  <div class="source-card"><div class="s-name">YouTube</div><div class="s-desc">Long-form interviews and analysis from Rule Investment Media, David Lin, Kitco, Bloomberg and others</div></div>
+  <div class="source-card"><div class="s-name">RSS Feeds</div><div class="s-desc">World Nuclear News, OilPrice.com, Rigzone, Energy Monitor, Uranium Insider</div></div>
+</div>
+
+<h2>HOW IT SCORES EQUITIES</h2>
+
+<p>Each tracked company gets a composite signal score between -1 and +1, updated every hour. The score combines three inputs:</p>
+
+<ul>
+  <li><strong style="color:#e8e2d6">News sentiment (40%)</strong> — weighted average of recent news coverage, with recency and source credibility factoring in</li>
+  <li><strong style="color:#e8e2d6">Price momentum (40%)</strong> — 14-day price trend and position within the recent trading range</li>
+  <li><strong style="color:#e8e2d6">Earnings transcript (20%)</strong> — tone and content of the most recent earnings call, decayed over time</li>
+</ul>
+
+<p>Scores map to signal labels: Strong Buy, Buy, Neutral, Sell, Strong Sell. The system also tracks how scores are moving between windows, flagging names with accelerating momentum even if they haven't crossed into Strong Buy territory yet.</p>
+
+<h2>THE PAPER TRADING ENGINE</h2>
+
+<p>CommodityBot runs a $5,000 paper trading portfolio — real signals, simulated money. The goal is straightforward: find out whether the data it collects actually has predictive value, or whether it's just noise with a good-looking dashboard.</p>
+
+<p>The engine runs three times per day during market hours — 9:45 AM, 12:00 PM, and 3:30 PM ET. At each window it looks for equities crossing into Strong Buy territory or showing strong accelerating momentum, then passes those candidates to Claude Sonnet for a final judgment call. Sonnet reviews the full signal picture — score history, news context, EIA data, any recent SEC filings, and the current portfolio — and decides whether to open a position and how much to size it.</p>
+
+<p>Positions are settled at end-of-day closing prices. Exits are signal-driven: a position closes when the score deteriorates toward neutral, or when Sonnet determines the thesis has broken down. If a stronger opportunity arrives when all five slots are full, the weakest existing position can be displaced.</p>
+
+<p>The portfolio page tracks open positions, unrealised P&L, and the full closed trade history with win rate over time.</p>
+
+<h2>THE REPORTS</h2>
+
+<p>Every morning at 6:15 AM PST, CommodityBot publishes a morning digest — a narrative summary of overnight developments, top-ranked equities, and anything notable from EIA or SEC filings. An evening brief follows at 5:30 PM, and a weekly wrap publishes every Friday evening synthesising the week's themes.</p>
+
+<p>All three reports are written by Claude Sonnet using everything the system collected that day. The goal is something closer to a thoughtful analyst note than a data dump.</p>
 
 </div></body></html>"""), mimetype="text/html")
 
