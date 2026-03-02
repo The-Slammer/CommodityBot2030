@@ -2,20 +2,24 @@
 jobs.py — All scheduled jobs.
 
 Schedule (UTC):
-  RSS             — every 15 min
-  AlphaVantage    — every 60 min
-  SEC filings     — every 60 min (same cycle as AV)
-  YouTube         — every 6 hours (news channels)
-  Style reference — Sundays 18:00 UTC (Tim Dillon)
-  Sentiment       — after every AV poll
-  Earnings check  — daily 13:00 UTC (5 AM PST)
-  Morning digest  — daily 14:15 UTC (6:15 AM PST)
-  EIA Crude       — Wednesdays 15:30 UTC (10:30 AM EST)
-  EIA Nat Gas     — Thursdays 15:30 UTC (10:30 AM EST)
-  EIA Drilling    — 16th of month 16:00 UTC
-  Transcript poll — daily 21:00 + 23:00 UTC
-  Evening digest  — daily 01:30 UTC (5:30 PM PST)
-  Weekly wrap     — Saturdays 01:30 UTC (Friday 5:30 PM PST)
+  RSS                  — every 15 min
+  AV oil_gas           — every 60 min, offset :00
+  AV uranium           — every 60 min, offset :15
+  AV precious_metals   — every 60 min, offset :30  (ready for gold/silver)
+  AV copper            — every 60 min, offset :40  (ready for copper)
+  AV lithium           — every 60 min, offset :50  (ready for lithium)
+  SEC filings          — every 60 min, offset :05
+  YouTube              — every 6 hours
+  Style reference      — Sundays 18:00 UTC (Tim Dillon)
+  Sentiment            — after each AV market group completes
+  Earnings check       — daily 13:00 UTC (5 AM PST)
+  Morning digest       — daily 14:15 UTC (6:15 AM PST)
+  EIA Crude            — Wednesdays 15:35 UTC
+  EIA Nat Gas          — Thursdays 15:35 UTC
+  EIA Drilling         — 16th of month 16:00 UTC
+  Transcript poll      — daily 21:00 + 23:00 UTC
+  Evening digest       — daily 01:30 UTC (5:30 PM PST)
+  Weekly wrap          — Saturdays 01:30 UTC (Friday 5:30 PM PST)
 """
 
 import logging
@@ -72,10 +76,38 @@ def run_rss_job():
     poll_all_feeds(RSS_FEEDS)
 
 
-def run_alphavantage_job():
-    logger.info("=== AlphaVantage poll cycle ===")
-    poll_all_sources(ALPHAVANTAGE_SOURCES)
-    update_all_equity_signals(ALPHAVANTAGE_SOURCES)
+def _sources_for_group(group: str) -> list:
+    return [s for s in ALPHAVANTAGE_SOURCES if s.get("commodity_group") == group]
+
+
+def _run_av_group(group: str):
+    sources = _sources_for_group(group)
+    if not sources:
+        logger.warning("No sources found for commodity_group=%s", group)
+        return
+    logger.info("=== AV poll: %s (%d sources) ===", group, len(sources))
+    poll_all_sources(sources)
+    update_all_equity_signals(sources)
+
+
+def run_av_oil_gas():
+    _run_av_group("oil_gas")
+
+
+def run_av_uranium():
+    _run_av_group("uranium")
+
+
+def run_av_precious_metals():
+    _run_av_group("precious_metals")
+
+
+def run_av_copper():
+    _run_av_group("copper")
+
+
+def run_av_lithium():
+    _run_av_group("lithium")
 
 
 def run_sec_job():
@@ -194,8 +226,15 @@ def start_scheduler():
 
     # Continuous ingestion
     scheduler.add_job(run_rss_job, IntervalTrigger(minutes=15), id="rss_poll", misfire_grace_time=60)
-    scheduler.add_job(run_alphavantage_job, IntervalTrigger(minutes=AV_POLL_INTERVAL), id="av_poll", misfire_grace_time=120)
-    scheduler.add_job(run_sec_job, IntervalTrigger(minutes=AV_POLL_INTERVAL), id="sec_poll", misfire_grace_time=120)
+    scheduler.add_job(run_sec_job, CronTrigger(minute=5), id="sec_poll", misfire_grace_time=120)
+
+    # AV market groups — staggered every 10-15 min to avoid rate limit bursts
+    # Each group runs independently on a 60-min cycle at its offset
+    scheduler.add_job(run_av_oil_gas,         CronTrigger(minute=0),  id="av_oil_gas",         misfire_grace_time=120)
+    scheduler.add_job(run_av_uranium,         CronTrigger(minute=15), id="av_uranium",          misfire_grace_time=120)
+    scheduler.add_job(run_av_precious_metals, CronTrigger(minute=30), id="av_precious_metals",  misfire_grace_time=120)
+    scheduler.add_job(run_av_copper,          CronTrigger(minute=40), id="av_copper",           misfire_grace_time=120)
+    scheduler.add_job(run_av_lithium,         CronTrigger(minute=50), id="av_lithium",          misfire_grace_time=120)
     scheduler.add_job(run_youtube_job, IntervalTrigger(hours=6), id="yt_poll", misfire_grace_time=300)
     scheduler.add_job(run_style_reference_job, CronTrigger(day_of_week="sun", hour=18, minute=0), id="style_ref_poll", misfire_grace_time=3600)
 
