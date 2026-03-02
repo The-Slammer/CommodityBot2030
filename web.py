@@ -440,24 +440,12 @@ li{margin-bottom:0.1rem}
 <p>The system tracks 79 energy equities across oil & gas E&P, midstream, refining, oilfield services, royalty trusts, and uranium miners. Every hour it pulls fresh news and price data for each name, scores the sentiment, and updates a composite signal that blends news, price momentum, and earnings transcript analysis.</p>
 
 <div class="source-row">
-  <div class="source-card"><div class="s-name">AlphaVantage</div><div class="s-desc">Real-time news sentiment & price data for all 79 tracked equities</div></div>
-  <div class="source-card"><div class="s-name">EIA API</div><div class="s-desc">US crude inventories, nat gas storage, drilling productivity — direct from the government</div></div>
-  <div class="source-card"><div class="s-name">SEC EDGAR</div><div class="s-desc">8-K and 10-Q filings monitored in real time for material corporate events</div></div>
-  <div class="source-card"><div class="s-name">YouTube</div><div class="s-desc">Long-form interviews and analysis from Rule Investment Media, David Lin, Kitco, Bloomberg and others</div></div>
-  <div class="source-card"><div class="s-name">RSS Feeds</div><div class="s-desc">World Nuclear News, OilPrice.com, Rigzone, Energy Monitor, Uranium Insider</div></div>
+  <div class="source-card"><div class="s-name">Market Intelligence</div><div class="s-desc">Real-time news sentiment & price data across all tracked equities, updated hourly</div></div>
+  <div class="source-card"><div class="s-name">Government Data</div><div class="s-desc">Official US energy inventory and production reports on scheduled release cycles</div></div>
+  <div class="source-card"><div class="s-name">Regulatory Filings</div><div class="s-desc">Material corporate events monitored in real time as they hit public record</div></div>
+  <div class="source-card"><div class="s-name">Video & Podcast</div><div class="s-desc">Long-form interviews and analysis from a curated set of institutional and independent voices</div></div>
+  <div class="source-card"><div class="s-name">News Feeds</div><div class="s-desc">Sector-specific publications covering oil, natural gas, and uranium markets</div></div>
 </div>
-
-<h2>HOW IT SCORES EQUITIES</h2>
-
-<p>Each tracked company gets a composite signal score between -1 and +1, updated every hour. The score combines three inputs:</p>
-
-<ul>
-  <li><strong style="color:#e8e2d6">News sentiment (40%)</strong> — weighted average of recent news coverage, with recency and source credibility factoring in</li>
-  <li><strong style="color:#e8e2d6">Price momentum (40%)</strong> — 14-day price trend and position within the recent trading range</li>
-  <li><strong style="color:#e8e2d6">Earnings transcript (20%)</strong> — tone and content of the most recent earnings call, decayed over time</li>
-</ul>
-
-<p>Scores map to signal labels: Strong Buy, Buy, Neutral, Sell, Strong Sell. The system also tracks how scores are moving between windows, flagging names with accelerating momentum even if they haven't crossed into Strong Buy territory yet.</p>
 
 <h2>THE PAPER TRADING ENGINE</h2>
 
