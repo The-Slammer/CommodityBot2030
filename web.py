@@ -209,6 +209,9 @@ def trigger_evening():
 
     threading.Thread(target=run, daemon=True).start()
     return Response(_trigger_page(started=True, label="Evening brief"), mimetype="text/html")
+
+
+@app.route("/stats")
 def stats():
     from database import get_conn
     import os as _os
