@@ -399,7 +399,7 @@ def generate_evening_digest():
 
     # 6. Render and save
     html = _render_html(date_str, price_movement, developments, narrative)
-    save_evening_digest({
+    insert_evening_digest({
         "date_str": date_str,
         "html": html,
         "generated_at": datetime.utcnow().isoformat(),
