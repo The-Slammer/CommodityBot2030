@@ -227,6 +227,20 @@ def log_poll(source_name: str, source_type: str, items_found: int,
 
 # --- Digest ---
 
+def get_av_items_since(since_timestamp: str) -> list:
+    """Return all AV items ingested since a specific timestamp, grouped with ticker info."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT title, summary, source_publisher, url,
+                   overall_sentiment_score, overall_sentiment_label,
+                   ticker_sentiment, av_topics, query_value, ingested_at
+            FROM alphavantage_items
+            WHERE ingested_at > ?
+            ORDER BY ABS(overall_sentiment_score) DESC
+        """, (since_timestamp,)).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_last_24h_alphavantage_items() -> list:
     """Return all AV items ingested in the last 24 hours for digest generation."""
     from datetime import timedelta
