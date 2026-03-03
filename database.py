@@ -137,6 +137,14 @@ def init_db():
                 generated_at        TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_geo_briefs_date ON geopolitical_briefs(date_str);
+            CREATE TABLE IF NOT EXISTS chart_cache (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol      TEXT NOT NULL,
+                series      TEXT NOT NULL,
+                cached_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_chart_cache_symbol ON chart_cache(symbol);
+            CREATE INDEX IF NOT EXISTS idx_chart_cache_cached ON chart_cache(cached_at);
         """)
     logger.info("Database initialized at %s", DB_PATH)
 
