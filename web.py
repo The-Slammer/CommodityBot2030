@@ -181,7 +181,7 @@ def index():
     digest = get_latest_digest()
     if digest:
         return Response(_wrap(digest["html"]), mimetype="text/html")
-    return Response(PLACEHOLDER("The Daily Energy Jerkoff", "Morning report publishes at 06:15 PST"), mimetype="text/html")
+    return Response(PLACEHOLDER("The Morning Market Breakdown", "Morning report publishes at 06:15 PST"), mimetype="text/html")
 
 
 @app.route("/evening")
