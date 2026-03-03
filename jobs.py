@@ -256,10 +256,10 @@ def start_scheduler():
     scheduler.add_job(run_eia_drilling_job, CronTrigger(day=16, hour=16, minute=0, timezone="UTC"), id="eia_drilling", misfire_grace_time=600)
 
     # Paper trading windows (ET times converted to UTC)
-    # 09:45 ET = 14:45 UTC  |  12:00 ET = 17:00 UTC  |  15:30 ET = 20:30 UTC
-    # EOD settlement = 21:15 UTC (after 4 PM ET close)
+    # 09:45 ET = 14:45 UTC  |  12:15 ET = 17:15 UTC (shifted from :00 to avoid AV oil_gas collision)
+    # 15:30 ET = 20:30 UTC  |  EOD price update = 21:15 UTC (after 4 PM ET close)
     scheduler.add_job(run_trading_morning,  CronTrigger(hour=14, minute=45, day_of_week="mon-fri", timezone="UTC"), id="trade_morning",  misfire_grace_time=120)
-    scheduler.add_job(run_trading_midday,   CronTrigger(hour=17, minute=0,  day_of_week="mon-fri", timezone="UTC"), id="trade_midday",   misfire_grace_time=120)
+    scheduler.add_job(run_trading_midday,   CronTrigger(hour=17, minute=15, day_of_week="mon-fri", timezone="UTC"), id="trade_midday",   misfire_grace_time=120)
     scheduler.add_job(run_trading_preclose, CronTrigger(hour=20, minute=30, day_of_week="mon-fri", timezone="UTC"), id="trade_preclose", misfire_grace_time=120)
     scheduler.add_job(run_eod_settlement_job, CronTrigger(hour=21, minute=15, day_of_week="mon-fri", timezone="UTC"), id="eod_settlement", misfire_grace_time=300)
 

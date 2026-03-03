@@ -892,3 +892,24 @@ def get_position_score_history(ticker: str, limit: int = 5) -> list:
             LIMIT ?
         """, (ticker, limit)).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_equity_score_velocity(ticker: str) -> float:
+    """
+    Returns the score delta between the last 24h average and the prior 24h average.
+    Positive = accelerating sentiment. Uses score_snapshots table — no AV calls.
+    """
+    cutoff_recent = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    cutoff_prior  = (datetime.utcnow() - timedelta(hours=48)).isoformat()
+    with get_conn() as conn:
+        recent_row = conn.execute("""
+            SELECT AVG(score) as avg_score FROM score_snapshots
+            WHERE ticker = ? AND recorded_at >= ?
+        """, (ticker, cutoff_recent)).fetchone()
+        prior_row = conn.execute("""
+            SELECT AVG(score) as avg_score FROM score_snapshots
+            WHERE ticker = ? AND recorded_at >= ? AND recorded_at < ?
+        """, (ticker, cutoff_prior, cutoff_recent)).fetchone()
+    recent = recent_row["avg_score"] if recent_row and recent_row["avg_score"] else 0.0
+    prior  = prior_row["avg_score"]  if prior_row  and prior_row["avg_score"]  else 0.0
+    return round(recent - prior, 4)
