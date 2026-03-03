@@ -107,34 +107,51 @@ def _fetch_equity_price_series(ticker: str) -> list[dict]:
 
 def fetch_price_data() -> dict:
     """
-    Fetch 7-day price series for all three commodities.
-    Adds a delay between AV calls to avoid rate limiting during digest generation.
-    On failure, retries once after a longer pause before giving up.
+    Primary: read from commodity_prices DB table (populated every 30 min by commodity_prices.py).
+    Fallback: live AV call if DB has no data for a symbol.
+    This decouples digest generation from AV availability — prices are always present
+    even if AV is down at 6:15 AM.
     """
+    from database import get_commodity_price_series, get_latest_commodity_price
+
+    # Map our commodity keys to DB symbols
+    SYMBOL_MAP = {
+        "oil": "WTI",
+        "natural_gas": "NATURAL_GAS",
+        "uranium": "URNM",
+    }
+
     prices = {}
-    for i, (key, config) in enumerate(COMMODITIES.items()):
-        # Space out AV calls to avoid rate limit during digest generation
-        if i > 0:
-            time.sleep(15)
-        for attempt in range(2):
-            try:
-                if config["av_function"]:
-                    series = _fetch_commodity_price_series(config["av_function"])
-                    prices[key] = [
-                        {"date": item["date"], "value": float(item["value"])}
-                        for item in series
-                    ]
-                else:
-                    prices[key] = _fetch_equity_price_series(config["ticker"])
-                logger.info("Fetched price data for %s (%d points)", key, len(prices[key]))
-                break
-            except Exception as e:
-                if attempt == 0:
-                    logger.warning("Price fetch failed for %s, retrying in 30s: %s", key, e)
-                    time.sleep(30)
-                else:
-                    logger.error("Price fetch failed for %s after retry: %s", key, e)
-                    prices[key] = []
+    for key, config in COMMODITIES.items():
+        symbol = SYMBOL_MAP.get(key)
+
+        # Try DB first
+        if symbol:
+            series = get_commodity_price_series(symbol, days=7)
+            if series:
+                prices[key] = series
+                logger.info("Price data for %s loaded from DB (%d points)", key, len(series))
+                continue
+
+        # DB empty — fall back to live AV call
+        logger.warning("No DB price data for %s — falling back to live AV fetch", key)
+        try:
+            if config["av_function"]:
+                raw = _fetch_commodity_price_series(config["av_function"])
+                prices[key] = [{"date": item["date"], "value": float(item["value"])} for item in raw]
+            else:
+                prices[key] = _fetch_equity_price_series(config["ticker"])
+            logger.info("Live AV fallback succeeded for %s (%d points)", key, len(prices[key]))
+        except Exception as e:
+            logger.error("Live AV fallback also failed for %s: %s", key, e)
+            # Last resort: single latest price point from DB to avoid $None in digest
+            last = get_latest_commodity_price(symbol) if symbol else None
+            if last:
+                prices[key] = [{"date": last["polled_at"][:10], "value": last["price"]}]
+                logger.warning("Using single last-known price for %s: %.4f", key, last["price"])
+            else:
+                prices[key] = []
+
     return prices
 
 
