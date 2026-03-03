@@ -126,6 +126,17 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_commodity_prices_symbol ON commodity_prices(symbol);
             CREATE INDEX IF NOT EXISTS idx_commodity_prices_polled ON commodity_prices(polled_at);
+            CREATE TABLE IF NOT EXISTS geopolitical_briefs (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                date_str            TEXT NOT NULL,
+                signals_found       INTEGER DEFAULT 0,
+                signal_count        INTEGER DEFAULT 0,
+                signals             TEXT,
+                summary             TEXT,
+                commodity_impacts   TEXT,
+                generated_at        TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_geo_briefs_date ON geopolitical_briefs(date_str);
         """)
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -236,6 +247,35 @@ def log_poll(source_name: str, source_type: str, items_found: int,
 
 
 # --- Digest ---
+def insert_geopolitical_brief(brief: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO geopolitical_briefs
+                (date_str, signals_found, signal_count, signals, summary, commodity_impacts, generated_at)
+            VALUES
+                (:date_str, :signals_found, :signal_count, :signals, :summary, :commodity_impacts, :generated_at)
+        """, brief)
+
+
+def get_latest_geopolitical_brief() -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT * FROM geopolitical_briefs ORDER BY generated_at DESC LIMIT 1
+        """).fetchone()
+        return dict(row) if row else None
+
+
+def get_last_24h_rss_items() -> list:
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT title, source_name, url, published_at
+            FROM rss_items
+            WHERE ingested_at >= ?
+            ORDER BY ingested_at DESC
+        """, (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
 def insert_commodity_price(symbol: str, price: float, source: str = "alphavantage"):
     with get_conn() as conn:
         conn.execute(
