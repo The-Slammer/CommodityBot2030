@@ -343,7 +343,7 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             labels = _json.loads(f.get("item_labels", "[]"))
             label_str = ", ".join(labels) if labels else f.get("title", "")[:60]
             sec_context += f"\n  {f.get('ticker','')} {f.get('filing_type','')}: {label_str} ({f.get('filed_at','')})"
-          geo_context = ""
+            geo_context = ""
     try:
         from database import get_latest_geopolitical_brief
         geo = get_latest_geopolitical_brief()
