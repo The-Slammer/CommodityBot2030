@@ -51,20 +51,41 @@ Past performance is not indicative of future results. CommodityBot and its opera
 assume no liability for actions taken based on this content.
 </div></div>"""
 
-NAV_BAR = """<nav style="background:#0f0f0f;border-bottom:1px solid #222;
-padding:0.6rem clamp(1.5rem,5vw,4rem);display:flex;gap:2rem;align-items:center;flex-wrap:wrap">
-<span style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:#c9a84c;
-letter-spacing:0.15em;text-transform:uppercase">CommodityBot</span>
-<a href="/" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
-text-decoration:none;letter-spacing:0.08em">Morning Report</a>
-<a href="/evening" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
-text-decoration:none;letter-spacing:0.08em">Evening Brief</a>
-<a href="/weekly" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
-text-decoration:none;letter-spacing:0.08em">Weekly Wrap</a>
-<a href="/portfolio" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em">Portfolio</a>
-<a href="/about" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em">About</a>
-<a href="/stats" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;
-text-decoration:none;letter-spacing:0.08em;margin-left:auto">Stats →</a>
+NAV_BAR = """<style>
+.cb-nav{background:#0f0f0f;border-bottom:1px solid #222;padding:0.6rem clamp(1.5rem,5vw,4rem);display:flex;gap:2rem;align-items:center;flex-wrap:wrap;position:relative;z-index:100}
+.cb-nav a,.cb-nav .dd-trigger{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em;cursor:pointer}
+.cb-nav .brand{font-size:0.6rem;color:#c9a84c;letter-spacing:0.15em;text-transform:uppercase}
+.cb-nav .ml-auto{margin-left:auto}
+.dd{position:relative;display:inline-block}
+.dd-trigger{background:none;border:none;padding:0;font-family:'IBM Plex Mono',monospace}
+.dd-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:#111;border:1px solid #222;min-width:160px;z-index:200}
+.dd-menu a{display:block;padding:0.5rem 1rem;font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em;border-bottom:1px solid #1a1a1a}
+.dd-menu a:last-child{border-bottom:none}
+.dd-menu a:hover,.cb-nav a:hover,.dd-trigger:hover{color:#e8e2d6}
+.dd:hover .dd-menu{display:block}
+</style>
+<nav class="cb-nav">
+  <span class="brand">CommodityBot</span>
+  <div class="dd">
+    <button class="dd-trigger">Words ▾</button>
+    <div class="dd-menu">
+      <a href="/">Morning Report</a>
+      <a href="/evening">Evening Brief</a>
+      <a href="/weekly">Weekly Wrap</a>
+    </div>
+  </div>
+  <div class="dd">
+    <button class="dd-trigger">Charts ▾</button>
+    <div class="dd-menu">
+      <a href="/charts/energy">Energy</a>
+      <a href="/charts/gold-silver">Gold / Silver</a>
+      <a href="/charts/copper">Copper</a>
+      <a href="/charts/uranium">Uranium</a>
+    </div>
+  </div>
+  <a href="/portfolio">Portfolio</a>
+  <a href="/about">About</a>
+  <a href="/stats" class="ml-auto">Stats →</a>
 </nav>"""
 
 PLACEHOLDER = lambda title, note: f"""<!DOCTYPE html>
