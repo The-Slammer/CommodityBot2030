@@ -30,6 +30,11 @@ app = Flask(__name__)
 _digest_running = False
 _evening_running = False
 
+DEV_BANNER = """<div style="background:#0d0d0d;border-bottom:1px solid #1a1a1a;padding:0.3rem clamp(1.5rem,5vw,4rem);text-align:center">
+<span style="font-family:'IBM Plex Mono',monospace;font-size:0.55rem;color:#444;letter-spacing:0.08em">
+CommodityBot is under continuous development — features are regularly tuned, expanded, and added.
+</span></div>"""
+
 DISCLAIMER_FOOTER = """<div style="margin:2rem auto;max-width:900px;padding:0 clamp(1.5rem,5vw,4rem)">
 <div style="padding:0.85rem 1.1rem;border:1px solid #2a2a2a;font-family:'IBM Plex Mono',monospace;
 font-size:0.58rem;color:#6b6560;line-height:1.7;letter-spacing:0.03em">
@@ -75,7 +80,7 @@ a{{color:#c9a84c}}</style></head>
 
 
 def _inject_nav(html: str) -> str:
-    return html.replace("<body>", f"<body>{NAV_BAR}", 1)
+    return html.replace("<body>", f"<body>{DEV_BANNER}{NAV_BAR}", 1)
 
 
 def _inject_disclaimer(html: str) -> str:
