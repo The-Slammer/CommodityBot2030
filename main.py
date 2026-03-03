@@ -65,6 +65,12 @@ def main():
 
     # DB init — must complete before anything else
     init_db()
+    try:
+        from commodity_prices import poll_commodity_prices
+        logger.info("Running startup commodity price poll...")
+        poll_commodity_prices()
+    except Exception as e:
+        logger.warning("Startup price poll failed: %s", e)
     init_new_tables()
 
     try:
