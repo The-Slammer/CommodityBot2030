@@ -343,6 +343,19 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             labels = _json.loads(f.get("item_labels", "[]"))
             label_str = ", ".join(labels) if labels else f.get("title", "")[:60]
             sec_context += f"\n  {f.get('ticker','')} {f.get('filing_type','')}: {label_str} ({f.get('filed_at','')})"
+          geo_context = ""
+    try:
+        from database import get_latest_geopolitical_brief
+        geo = get_latest_geopolitical_brief()
+        if geo and geo.get("summary"):
+            geo_context = geo["summary"]
+            impacts = json.loads(geo.get("commodity_impacts", "{}"))
+            if impacts:
+                geo_context += "\n  Oil: " + impacts.get("oil", "")
+                geo_context += "\n  Natural Gas: " + impacts.get("natural_gas", "")
+                geo_context += "\n  Uranium: " + impacts.get("uranium", "")
+    except Exception as e:
+        logger.warning("Could not load geopolitical brief: %s", e)
 
     prompt = (
         "You are a sharp, opinionated energy markets analyst writing the Daily Energy Jerkoff — "
@@ -352,7 +365,10 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         "(2) how the news sentiment aligns or diverges from price action — flag any notable divergences, "
         "(3) the one thing readers should be watching today. "
         "Be direct, use precise language, no fluff. Don't start with 'Good morning'. "
-        "Do not use bullet points. Write in flowing paragraphs.\n\n"
+        "Do not use bullet points. Write in flowing paragraphs. "
+        "If geopolitical context is provided, weave it into the price action narrative — "
+        "explain how geopolitical pressure is amplifying or contradicting what prices are doing. "
+        "Do not list geopolitical events separately.\n\n"
         "Market data:\n" + "\n\n".join(context) +
         ("\n\nEIA Inventory Data released today:" + eia_context if eia_context else "") +
         ("\n\nSEC Material Filings (last 36h):" + sec_context if sec_context else "") +
