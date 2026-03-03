@@ -9,7 +9,10 @@ AV_BASE = "https://www.alphavantage.co/query"
 COMMODITY_SYMBOLS = [
     {"symbol": "WTI", "av_function": "WTI", "extra_params": {"interval": "daily"}, "response_type": "commodity"},
     {"symbol": "NATURAL_GAS", "av_function": "NATURAL_GAS", "extra_params": {"interval": "daily"}, "response_type": "commodity"},
-    {"symbol": "URNM", "av_function": "GLOBAL_QUOTE", "extra_params": {"symbol": "URNM"}, "response_type": "quote"},
+    {"symbol": "URNM", "av_function": "GLOBAL_QUOTE", "extra_params": {"symbol": "URNM"}, "response_type": "quote"}
+    {"symbol": "GOLD", "av_function": "GOLD", "extra_params": {"interval": "daily"}, "response_type": "commodity"},
+    {"symbol": "SILVER", "av_function": "SILVER", "extra_params": {"interval": "daily"}, "response_type": "commodity"},
+    {"symbol": "COPPER", "av_function": "COPPER", "extra_params": {"interval": "daily"}, "response_type": "commodity"},
 ]
 
 def _fetch_price(config):
