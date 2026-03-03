@@ -355,7 +355,9 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         "Do not use bullet points. Write in flowing paragraphs.\n\n"
         "Market data:\n" + "\n\n".join(context) +
         ("\n\nEIA Inventory Data released today:" + eia_context if eia_context else "") +
-        ("\n\nSEC Material Filings (last 36h):" + sec_context if sec_context else "")
+        ("\n\nSEC Material Filings (last 36h):" + sec_context if sec_context else "") +
+        ("\n\nGEOPOLITICAL CONTEXT:\n" + geo_context if geo_context else "")
+    )
     )
 
     try:
