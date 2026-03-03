@@ -36,6 +36,7 @@ from rss import poll_all_feeds
 from youtube import poll_all_channels
 from alphavantage import poll_all_sources
 from commodity_prices import poll_commodity_prices
+from geopolitics import generate_geopolitical_brief
 from digest import generate_digest
 from evening_digest import generate_evening_digest
 from weekly_digest import generate_weekly_digest
@@ -233,6 +234,7 @@ def start_scheduler():
     # AV market groups — staggered every 10-15 min to avoid rate limit bursts
     # Each group runs independently on a 60-min cycle at its offset
     scheduler.add_job(poll_commodity_prices, IntervalTrigger(minutes=30), id="commodity_prices", misfire_grace_time=120)
+    scheduler.add_job(generate_geopolitical_brief, CronTrigger(hour=5, minute=0), id="geo_brief", misfire_grace_time=300)
     scheduler.add_job(run_av_oil_gas,         CronTrigger(minute=0),  id="av_oil_gas",         misfire_grace_time=120)
     scheduler.add_job(run_av_uranium,         CronTrigger(minute=15), id="av_uranium",          misfire_grace_time=120)
     scheduler.add_job(run_av_precious_metals, CronTrigger(minute=30), id="av_precious_metals",  misfire_grace_time=120)
