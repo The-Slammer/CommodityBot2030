@@ -98,7 +98,7 @@ h1{{font-family:'Playfair Display',serif;font-size:2.5rem;color:#e8e2d6;margin-b
 h1 em{{font-style:italic;color:#c9a84c}}p{{font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase}}
 a{{color:#c9a84c}}</style></head>
 <body>{NAV_BAR}<div class="wrap"><div>
-<h1>The Daily <em>Energy</em> Jerkoff</h1><p>{note}</p>
+<h1>Morning Market <em>Breakdown</em></h1><p>{note}</p>
 <p style="margin-top:1rem"><a href="/stats">View ingestion stats →</a></p>
 </div></div></body></html>"""
 
