@@ -88,31 +88,64 @@ def _inject_disclaimer(html: str) -> str:
 
 
 def _build_price_ticker() -> str:
-    """Build the price ticker strip from latest digest price_sentiments."""
     try:
-        digest = get_latest_digest()
-        if not digest or not digest.get("price_sentiments"):
-            return ""
-        ps = json.loads(digest["price_sentiments"])
+        from database import get_latest_commodity_price, get_commodity_price_series
+        
+        def ticker_item(symbol, label):
+            latest = get_latest_commodity_price(symbol)
+            if not latest:
+                return (f'<span style="font-family:\'IBM Plex Mono\',monospace;'
+                        f'font-size:0.6rem;color:#6b6560">{label} —</span>')
+            
+            price = latest["price"]
+            polled = latest["polled_at"][:16].replace("T", " ")
 
-        def ticker_item(key, label, unit):
-            data = ps.get(key, {})
-            price = data.get("current")
-            chg = data.get("change_pct")
-            if price is None:
-                return (f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.6rem;'
-                        f'color:#6b6560;letter-spacing:0.06em">{label} —</span>')
-            color = "#22c55e" if (chg or 0) >= 0 else "#ef4444"
-            sign = "+" if (chg or 0) >= 0 else ""
-            chg_str = f"{sign}{chg:.2f}%" if chg is not None else "—"
+            # Get 7d series for week-over-week
+            series = get_commodity_price_series(symbol, days=8)
+            wow_html = ""
+            if series and len(series) >= 2:
+                oldest = series[-1]["value"]
+                chg = ((price - oldest) / oldest) * 100
+                color = "#22c55e" if chg >= 0 else "#ef4444"
+                arrow = "▲" if chg >= 0 else "▼"
+                sign = "+" if chg >= 0 else ""
+                wow_html = (
+                    f'<span style="color:{color};margin-left:0.4rem;font-size:0.58rem">'
+                    f'{arrow} {sign}{chg:.2f}% W/W</span>'
+                    f'<span style="color:#2a2a2a;margin-left:0.35rem;font-size:0.55rem">'
+                    f'(was ${oldest:.2f})</span>'
+                )
+
             return (
                 f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.6rem;'
-                f'color:#9a9490;letter-spacing:0.06em">'
+                f'color:#9a9490;letter-spacing:0.05em">'
                 f'<span style="color:#6b6560">{label}</span> '
                 f'<span style="color:#e8e2d6">${price:.2f}</span>'
-                f'<span style="color:{color};margin-left:0.4rem">{chg_str} (7d)</span>'
+                f'{wow_html}'
                 f'</span>'
             )
+
+        items = "  ·  ".join([
+            ticker_item("WTI", "WTI"),
+            ticker_item("NATURAL_GAS", "NAT GAS"),
+            ticker_item("URNM", "URANIUM"),
+        ])
+
+        # Timestamp from latest WTI poll
+        latest_wti = get_latest_commodity_price("WTI")
+        ts = latest_wti["polled_at"][:16].replace("T", " ") + " UTC" if latest_wti else ""
+
+        return (
+            f'<div style="background:#0a0a0a;border-bottom:1px solid #1a1a1a;'
+            f'padding:0.35rem clamp(1.5rem,5vw,4rem);display:flex;'
+            f'align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">'
+            f'<div style="display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap">{items}</div>'
+            f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.55rem;'
+            f'color:#2a2a2a;letter-spacing:0.06em">as of {ts}</span>'
+            f'</div>'
+        )
+    except Exception:
+        return ""
 
         generated = digest.get("generated_at", "")[:16].replace("T", " ") + " UTC" if digest.get("generated_at") else ""
 
