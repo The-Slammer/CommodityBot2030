@@ -30,6 +30,9 @@ app = Flask(__name__)
 _digest_running = False
 _evening_running = False
 
+from charts import charts_bp
+app.register_blueprint(charts_bp)
+
 DEV_BANNER = """<div style="background:#0d0d0d;border-bottom:1px solid #1a1a1a;padding:0.3rem clamp(1.5rem,5vw,4rem);text-align:center">
 <span style="font-family:'IBM Plex Mono',monospace;font-size:0.55rem;color:#444;letter-spacing:0.08em">
 CommodityBot is under continuous development — features are regularly tuned, expanded, and added.
