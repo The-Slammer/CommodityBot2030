@@ -1,137 +1,125 @@
 """
-evening_digest.py — Daily 5:30 PM PST evening brief.
+evening_digest.py — Standalone end-of-day intelligence summary.
+Runs at 17:30 PST daily. Fully independent — does not require a morning digest.
 
-Two-stage intelligence pipeline:
-  Stage 1 (Haiku) — scores all news since morning, decides what is materially
-                     significant enough to surface. Looks for: earnings surprises,
-                     guidance changes, M&A, production updates, regulatory events,
-                     analyst rating changes, or anything that would shift a company's
-                     buy/sell score.
-  Stage 2 (Sonnet) — receives price deltas, Haiku's filtered company developments,
-                     and the morning narrative. Writes the evening brief narrative
-                     and synthesizes cross-company themes if present.
+Structure:
+  1. Intraday price movement (earliest vs latest DB price per commodity)
+  2. Top 1-2 developments (Haiku scans all day's headlines for significance)
+  3. Sonnet close (what it means, what to watch tomorrow)
 """
 
 import json
 import logging
 import os
-from datetime import datetime
-
 import requests
+from datetime import datetime, timedelta
 
 from database import (
-    get_latest_digest,
+    get_conn,
     get_av_items_since,
-    insert_evening_digest,
+    get_latest_geopolitical_brief,
+    save_evening_digest,
 )
 
 logger = logging.getLogger(__name__)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY")
-AV_BASE = "https://www.alphavantage.co/query"
-
-DISCLAIMER = """
-<div class="disclaimer">
-    <strong>Research purposes only.</strong> CommodityBot is an automated research tool.
-    Nothing published here constitutes financial advice, a solicitation, or a recommendation
-    to buy or sell any security or commodity. Always consult a licensed financial advisor
-    before making investment decisions. Past performance is not indicative of future results.
-</div>"""
 
 
 # ---------------------------------------------------------------------------
-# Price fetching
+# Price movement
 # ---------------------------------------------------------------------------
 
-def _fetch_current_prices() -> dict:
-    import time
-    prices = {}
-    endpoints = {"oil": "WTI", "natural_gas": "NATURAL_GAS"}
-    for key, fn in endpoints.items():
-        try:
-            r = requests.get(AV_BASE, params={
-                "function": fn, "interval": "daily", "apikey": ALPHAVANTAGE_API_KEY
-            }, timeout=15)
-            data = r.json()
-            latest = data.get("data", [{}])[0]
-            prices[key] = float(latest.get("value", 0)) or None
-        except Exception:
-            prices[key] = None
-        time.sleep(12)
-    try:
-        r = requests.get(AV_BASE, params={
-            "function": "GLOBAL_QUOTE", "symbol": "URNM", "apikey": ALPHAVANTAGE_API_KEY
-        }, timeout=15)
-        q = r.json().get("Global Quote", {})
-        prices["uranium"] = float(q.get("05. price", 0)) or None
-    except Exception:
-        prices["uranium"] = None
-    return prices
-
-
-# ---------------------------------------------------------------------------
-# Stage 1 — Haiku: score and filter news since morning
-# ---------------------------------------------------------------------------
-
-def _group_news_by_ticker(items: list) -> dict:
-    """Group AV items by their query_value (ticker), keep top 3 per ticker by sentiment magnitude."""
-    grouped = {}
-    for item in items:
-        ticker = item.get("query_value", "UNKNOWN")
-        if ticker not in grouped:
-            grouped[ticker] = []
-        grouped[ticker].append(item)
-    # Sort each ticker's news by abs sentiment, keep top 3
-    for ticker in grouped:
-        grouped[ticker] = sorted(
-            grouped[ticker],
-            key=lambda x: abs(x.get("overall_sentiment_score") or 0),
-            reverse=True
-        )[:3]
-    return grouped
-
-
-def _haiku_score_company_news(ticker: str, news_items: list) -> dict | None:
+def _get_intraday_movement() -> dict:
     """
-    Haiku evaluates a single company's news batch and decides if anything
-    is materially significant — i.e. would change the buy/sell outlook.
-    Returns a dict with: ticker, material (bool), signal_impact (bullish/bearish/neutral),
-    headline (best headline), summary (1 sentence), or None on failure.
+    Compare earliest and latest stored price for each commodity today.
+    Returns dict keyed by symbol with open, close, change_pct, high, low.
     """
-    if not ANTHROPIC_API_KEY or not news_items:
-        return None
+    symbols = ["WTI", "NATURAL_GAS", "URNM", "GOLD", "SILVER", "COPPER"]
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    result = {}
 
-    news_text = "\n".join(
-        f"  - [{item.get('overall_sentiment_label','?')}] {item.get('title','')} "
-        f"({item.get('source_publisher','')})"
-        for item in news_items
+    with get_conn() as conn:
+        for symbol in symbols:
+            rows = conn.execute("""
+                SELECT price, polled_at FROM commodity_prices
+                WHERE symbol = ? AND DATE(polled_at) = ?
+                ORDER BY polled_at ASC
+            """, (symbol, today)).fetchall()
+
+            if not rows or len(rows) < 2:
+                # Fall back to yesterday comparison if only one reading today
+                yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+                prev = conn.execute("""
+                    SELECT price FROM commodity_prices
+                    WHERE symbol = ? AND DATE(polled_at) = ?
+                    ORDER BY polled_at DESC LIMIT 1
+                """, (symbol, yesterday)).fetchone()
+
+                if rows and prev:
+                    price_open = prev["price"]
+                    price_close = rows[-1]["price"]
+                    prices = [price_open, price_close]
+                else:
+                    result[symbol] = None
+                    continue
+            else:
+                prices = [r["price"] for r in rows]
+                price_open = prices[0]
+                price_close = prices[-1]
+
+            change_pct = ((price_close - price_open) / price_open) * 100
+            result[symbol] = {
+                "open":       round(price_open, 4),
+                "close":      round(price_close, 4),
+                "high":       round(max(prices), 4),
+                "low":        round(min(prices), 4),
+                "change_pct": round(change_pct, 3),
+                "direction":  "up" if change_pct >= 0 else "down",
+            }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Haiku significance filter
+# ---------------------------------------------------------------------------
+
+def _haiku_top_developments(headlines: list) -> list:
+    """
+    Haiku reviews today's headlines and returns the 1-2 most significant
+    developments. Significance = material impact on commodity prices,
+    not volume of coverage.
+    """
+    if not ANTHROPIC_API_KEY or not headlines:
+        return []
+
+    text = "\n".join(
+        f"  [{i+1}] {h['title']} — {h['summary'][:200]} ({h['source']})"
+        for i, h in enumerate(headlines[:100])
     )
 
-    prompt = f"""You are evaluating news for {ticker} to decide if anything is materially significant for energy investors.
-
-NEWS ITEMS:
-{news_text}
-
-TASK:
-Decide if any of these stories represent a material development — something that would meaningfully shift the buy/sell outlook for {ticker}. Material events include: earnings surprises, guidance changes, production updates, M&A activity, analyst rating changes, regulatory decisions, contract wins/losses, management changes, or significant operational events.
-
-Routine press releases, minor partnerships, and generic sector commentary are NOT material.
-
-Respond ONLY in this exact JSON format, no other text:
-{{
-  "material": true,
-  "signal_impact": "bullish",
-  "headline": "The single most important headline in your own words",
-  "summary": "One sentence explaining why this matters for the stock."
-}}
-
-If nothing is material, respond:
-{{
-  "material": false,
-  "signal_impact": "neutral",
-  "headline": "",
-  "summary": ""
-}}"""
+    prompt = (
+        "You are an energy and commodities market analyst reviewing today's news.\n\n"
+        "From the headlines and summaries below, identify the 1 or 2 most significant "
+        "developments that could materially affect commodity prices — oil, natural gas, "
+        "uranium, gold, silver, or copper.\n\n"
+        "Significance means: OPEC decisions, sanctions, supply disruptions, major earnings "
+        "surprises, geopolitical escalation, central bank moves, large M&A, regulatory "
+        "rulings. Ignore routine price updates, minor analyst upgrades, and promotional content.\n\n"
+        "If nothing is genuinely significant today, return an empty developments array.\n\n"
+        + text +
+        "\n\nRespond ONLY in this exact JSON format, no preamble:\n"
+        "{\n"
+        '  "developments": [\n'
+        '    {\n'
+        '      "headline": "your reworded one-line headline",\n'
+        '      "why_it_matters": "one sentence on the commodity price implication",\n'
+        '      "commodities_affected": ["oil", "natural_gas"],\n'
+        '      "direction": "bullish|bearish|neutral"\n'
+        '    }\n'
+        "  ]\n"
+        "}"
+    )
 
     try:
         r = requests.post(
@@ -143,86 +131,74 @@ If nothing is material, respond:
             },
             json={
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 200,
+                "max_tokens": 600,
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=20,
+            timeout=30,
         )
         r.raise_for_status()
-        text = r.json()["content"][0]["text"]
-        clean = text.replace("```json", "").replace("```", "").strip()
-        parsed = json.loads(clean)
-        if parsed.get("material"):
-            parsed["ticker"] = ticker
-            return parsed
-        return None
+        text_out = r.json()["content"][0]["text"]
+        clean = text_out.replace("```json", "").replace("```", "").strip()
+        data = json.loads(clean)
+        return data.get("developments", [])
     except Exception as e:
-        logger.warning("Haiku news scoring failed for %s: %s", ticker, e)
-        return None
-
-
-def _score_all_company_news(since_timestamp: str) -> list:
-    """
-    Pull all news since morning, group by ticker, run Haiku on each group.
-    Returns list of material developments sorted by impact.
-    """
-    import time
-    items = get_av_items_since(since_timestamp)
-    if not items:
-        logger.info("No new AV items since morning")
+        logger.error("Haiku development extraction failed: %s", e)
         return []
 
-    grouped = _group_news_by_ticker(items)
-    logger.info("Scoring company news — %d tickers with new items since morning", len(grouped))
-
-    material = []
-    for i, (ticker, news) in enumerate(grouped.items()):
-        if i > 0:
-            time.sleep(2)  # pace Haiku calls
-        result = _haiku_score_company_news(ticker, news)
-        if result:
-            material.append(result)
-            logger.info("Material development — %s: %s", ticker, result.get("signal_impact"))
-
-    # Sort: bearish first (most actionable), then bullish, then neutral
-    order = {"bearish": 0, "bullish": 1, "neutral": 2}
-    material.sort(key=lambda x: order.get(x.get("signal_impact", "neutral"), 2))
-    return material
-
 
 # ---------------------------------------------------------------------------
-# Stage 2 — Sonnet: write the evening narrative
+# Sonnet narrative close
 # ---------------------------------------------------------------------------
 
-def _generate_evening_narrative(morning_narrative: str, price_deltas: dict,
-                                  developments: list) -> str:
+def _sonnet_close(price_movement: dict, developments: list, geo_brief: dict) -> str:
+    """
+    Sonnet writes a 2-paragraph end-of-day close synthesizing price movement
+    and key developments into actionable context for tomorrow.
+    """
     if not ANTHROPIC_API_KEY:
-        return "Narrative unavailable."
+        return ""
 
-    delta_text = "\n".join(
-        f"  {k.replace('_', ' ').title()}: {'+' if v and v > 0 else ''}{v:.2f}% since morning"
-        for k, v in price_deltas.items() if v is not None
-    ) or "  Price delta data unavailable."
-
-    if developments:
-        dev_text = "\n".join(
-            f"  {d['ticker']} [{d['signal_impact'].upper()}]: {d['headline']} — {d['summary']}"
-            for d in developments
+    # Build price context
+    price_lines = []
+    labels = {
+        "WTI": "Crude Oil (WTI)", "NATURAL_GAS": "Natural Gas",
+        "URNM": "Uranium (URNM)", "GOLD": "Gold",
+        "SILVER": "Silver", "COPPER": "Copper",
+    }
+    for symbol, data in price_movement.items():
+        if not data:
+            continue
+        label = labels.get(symbol, symbol)
+        sign = "+" if data["change_pct"] >= 0 else ""
+        price_lines.append(
+            f"  {label}: ${data['close']:.2f} ({sign}{data['change_pct']:.2f}% today, "
+            f"range ${data['low']:.2f}–${data['high']:.2f})"
         )
-    else:
-        dev_text = "  No material company-level developments identified today."
+
+    # Build developments context
+    dev_lines = []
+    for d in developments:
+        dev_lines.append(
+            f"  - {d['headline']} [{d['direction'].upper()}] — {d['why_it_matters']}"
+        )
+
+    geo_context = ""
+    if geo_brief and geo_brief.get("summary"):
+        geo_context = f"\n\nGeopolitical backdrop: {geo_brief['summary']}"
 
     prompt = (
-        "You are an energy markets analyst writing a concise end-of-day brief for serious investors. "
-        "Write 2-3 paragraphs (150 words max total):\n"
-        "1. How today's price action played out vs the morning outlook — be specific about moves\n"
-        "2. Company-level developments that matter — focus only on what Haiku flagged as material, "
-        "explain the significance briefly. If nothing material, say so in one line and move on.\n"
-        "3. One forward-looking sentence: what does today set up for tomorrow.\n\n"
-        "Be direct. No fluff. Don't repeat headlines verbatim — synthesize them.\n\n"
-        f"Morning outlook:\n{morning_narrative[:600]}\n\n"
-        f"Price movement today:\n{delta_text}\n\n"
-        f"Material company developments (Haiku-filtered):\n{dev_text}"
+        "You are writing the Daily Energy Close — a sharp, no-fluff end-of-day "
+        "commodity markets summary for serious investors. "
+        "Write exactly 2 paragraphs, 120-160 words total.\n\n"
+        "Paragraph 1: Synthesize today's price movement across commodities. "
+        "Which markets moved meaningfully and why. Highlight any divergences — "
+        "if oil fell while gold rose, that contrast matters.\n\n"
+        "Paragraph 2: What the key development(s) mean for tomorrow and the near term. "
+        "End with the single most important thing to watch. "
+        "Be direct. No bullet points. No fluff. Don't start with 'Today'.\n\n"
+        "PRICE MOVEMENT TODAY:\n" + "\n".join(price_lines) +
+        ("\n\nKEY DEVELOPMENTS:\n" + "\n".join(dev_lines) if dev_lines else "\n\nNo major developments identified today.") +
+        geo_context
     )
 
     try:
@@ -235,191 +211,198 @@ def _generate_evening_narrative(morning_narrative: str, price_deltas: dict,
             },
             json={
                 "model": "claude-sonnet-4-6",
-                "max_tokens": 500,
+                "max_tokens": 400,
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=30,
+            timeout=45,
         )
         r.raise_for_status()
-        return r.json()["content"][0]["text"]
+        return r.json()["content"][0]["text"].strip()
     except Exception as e:
-        logger.error("Evening narrative failed: %s", e)
-        return "Narrative generation failed."
+        logger.error("Sonnet close generation failed: %s", e)
+        return ""
 
 
 # ---------------------------------------------------------------------------
-# HTML rendering helpers
+# HTML rendering
 # ---------------------------------------------------------------------------
 
-def _impact_color(impact: str) -> str:
-    return {"bullish": "#22c55e", "bearish": "#ef4444"}.get(impact, "#94a3b8")
+def _render_html(date_str: str, price_movement: dict, developments: list, narrative: str) -> str:
+    labels = {
+        "WTI": "Crude Oil (WTI)", "NATURAL_GAS": "Natural Gas (Henry Hub)",
+        "URNM": "Uranium (URNM)", "GOLD": "Gold",
+        "SILVER": "Silver", "COPPER": "Copper",
+    }
+    units = {
+        "WTI": "$/bbl", "NATURAL_GAS": "$/MMBtu",
+        "URNM": "$/share", "GOLD": "$/oz",
+        "SILVER": "$/oz", "COPPER": "$/lb",
+    }
 
+    # Price cards
+    price_cards = ""
+    for symbol, data in price_movement.items():
+        label = labels.get(symbol, symbol)
+        unit = units.get(symbol, "")
+        if not data:
+            price_cards += (
+                f'<div class="price-card">'
+                f'<div class="pc-label">{label}</div>'
+                f'<div class="pc-price">—</div>'
+                f'</div>'
+            )
+            continue
+        color = "#22c55e" if data["direction"] == "up" else "#ef4444"
+        arrow = "▲" if data["direction"] == "up" else "▼"
+        sign = "+" if data["change_pct"] >= 0 else ""
+        price_cards += (
+            f'<div class="price-card">'
+            f'<div class="pc-label">{label}</div>'
+            f'<div class="pc-price">${data["close"]:.2f} <span class="pc-unit">{unit}</span></div>'
+            f'<div class="pc-chg" style="color:{color}">{arrow} {sign}{data["change_pct"]:.2f}% today</div>'
+            f'<div class="pc-range">Range: ${data["low"]:.2f} – ${data["high"]:.2f}</div>'
+            f'</div>'
+        )
 
-def _impact_label(impact: str) -> str:
-    return {"bullish": "BULLISH", "bearish": "BEARISH"}.get(impact, "NEUTRAL")
+    # Development cards
+    dev_cards = ""
+    if developments:
+        for d in developments:
+            dir_color = {"bullish": "#22c55e", "bearish": "#ef4444"}.get(d["direction"], "#9a9490")
+            commodities = ", ".join(d.get("commodities_affected", []))
+            dev_cards += (
+                f'<div class="dev-card">'
+                f'<div class="dev-header">'
+                f'<span class="dev-headline">{d["headline"]}</span>'
+                f'<span class="dev-badge" style="color:{dir_color};border-color:{dir_color}">'
+                f'{d["direction"].upper()}</span>'
+                f'</div>'
+                f'<div class="dev-why">{d["why_it_matters"]}</div>'
+                f'<div class="dev-commodities">{commodities}</div>'
+                f'</div>'
+            )
+    else:
+        dev_cards = '<div class="quiet-day">No material developments identified today.</div>'
+
+    # Narrative paragraphs
+    narrative_html = ""
+    if narrative:
+        for para in narrative.strip().split("\n\n"):
+            if para.strip():
+                narrative_html += f'<p class="narrative-para">{para.strip()}</p>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Daily Energy Close — {date_str}</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,900;1,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;min-height:100vh}}
+.masthead{{text-align:center;padding:3rem clamp(1.5rem,5vw,4rem) 2rem;border-bottom:1px solid #1a1a1a}}
+.edition{{font-size:0.6rem;color:#c9a84c;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:1rem}}
+.title{{font-family:'Playfair Display',serif;font-size:clamp(2rem,6vw,3.5rem);color:#e8e2d6;line-height:1.1;margin-bottom:0.75rem}}
+.title em{{color:#c9a84c;font-style:italic}}
+.subtitle{{font-family:'Playfair Display',serif;font-style:italic;font-size:0.9rem;color:#6b6560;margin-bottom:1.5rem}}
+.dateline{{display:inline-block;border:1px solid #2a2a2a;font-size:0.6rem;color:#6b6560;letter-spacing:0.15em;padding:0.4rem 1rem;text-transform:uppercase}}
+.content{{max-width:1100px;margin:0 auto;padding:2.5rem clamp(1.5rem,5vw,4rem)}}
+.section-title{{font-size:0.62rem;color:#c9a84c;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:1.25rem;padding-bottom:0.5rem;border-bottom:1px solid #1e1e1e}}
+.price-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;margin-bottom:3rem}}
+.price-card{{background:#0e0e0e;padding:1.25rem 1rem}}
+.pc-label{{font-size:0.58rem;color:#6b6560;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.5rem}}
+.pc-price{{font-size:1.3rem;color:#e8e2d6;margin-bottom:0.25rem}}
+.pc-unit{{font-size:0.55rem;color:#444}}
+.pc-chg{{font-size:0.7rem;margin-bottom:0.2rem}}
+.pc-range{{font-size:0.58rem;color:#444;letter-spacing:0.04em}}
+.dev-card{{border:1px solid #1e1e1e;padding:1.25rem;margin-bottom:1px;background:#0e0e0e}}
+.dev-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:0.6rem}}
+.dev-headline{{font-size:0.75rem;color:#e8e2d6;line-height:1.5;flex:1}}
+.dev-badge{{font-size:0.55rem;letter-spacing:0.1em;border:1px solid;padding:0.15rem 0.5rem;white-space:nowrap;flex-shrink:0}}
+.dev-why{{font-size:0.68rem;color:#9a9490;line-height:1.6;margin-bottom:0.4rem}}
+.dev-commodities{{font-size:0.58rem;color:#444;letter-spacing:0.08em;text-transform:uppercase}}
+.quiet-day{{font-size:0.68rem;color:#444;padding:1.5rem 0;letter-spacing:0.08em}}
+.narrative-section{{margin-top:3rem}}
+.narrative-para{{font-size:0.85rem;color:#9a9490;line-height:1.9;margin-bottom:1.25rem;max-width:720px}}
+.developments-section{{margin-bottom:3rem}}
+@media(max-width:600px){{.price-grid{{grid-template-columns:1fr 1fr}}}}
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="edition">Evening Edition</div>
+  <h1 class="title">Daily <em>Energy</em> Close</h1>
+  <div class="subtitle">End-of-day commodity intelligence</div>
+  <div class="dateline">{date_str} · Published 17:30 PST</div>
+</div>
+<div class="content">
+  <div class="section-title">Price Movement Today</div>
+  <div class="price-grid">{price_cards}</div>
+
+  <div class="developments-section">
+    <div class="section-title">Key Developments</div>
+    {dev_cards}
+  </div>
+
+  <div class="narrative-section">
+    <div class="section-title">The Close</div>
+    {narrative_html}
+  </div>
+</div>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
-# Main orchestrator
+# Main entry point
 # ---------------------------------------------------------------------------
 
 def generate_evening_digest():
     logger.info("=== Evening digest generation starting ===")
-    date_str = datetime.now().strftime("%B %d, %Y").replace(" 0", " ")
-    morning = get_latest_digest()
-    morning_generated_at = morning["generated_at"] if morning else ""
 
-    # Fetch prices
-    current_prices = _fetch_current_prices()
+    date_str = datetime.utcnow().strftime("%B %-d, %Y")
 
-    # Calculate price deltas vs morning
-    price_deltas = {}
-    if morning:
-        try:
-            morning_ps = json.loads(morning.get("price_sentiments", "{}"))
-            for key in ["oil", "natural_gas", "uranium"]:
-                morning_price = morning_ps.get(key, {}).get("current")
-                current = current_prices.get(key)
-                if morning_price and current and morning_price > 0:
-                    price_deltas[key] = round(((current - morning_price) / morning_price) * 100, 2)
-                else:
-                    price_deltas[key] = None
-        except Exception:
-            price_deltas = {k: None for k in ["oil", "natural_gas", "uranium"]}
+    # 1. Intraday price movement
+    price_movement = _get_intraday_movement()
+    logger.info("Price movement computed for %d symbols", len(price_movement))
 
-    # Stage 1: Haiku scores company news
-    developments = _score_all_company_news(morning_generated_at)
-    logger.info("Haiku identified %d material developments", len(developments))
+    # 2. Collect today's headlines
+    midnight = datetime.utcnow().replace(hour=0, minute=0, second=0).isoformat()
+    av_items = get_av_items_since(midnight)
+    headlines = []
+    seen = set()
+    for item in av_items:
+        title = (item.get("title") or "").strip()
+        if title and title not in seen:
+            seen.add(title)
+            headlines.append({
+                "title": title,
+                "summary": item.get("summary") or "",
+                "source": item.get("source_publisher") or item.get("source_name") or "",
+            })
+    logger.info("Collected %d unique headlines for today", len(headlines))
 
-    # Stage 2: Sonnet writes narrative
-    narrative = _generate_evening_narrative(
-        morning.get("narrative", "") if morning else "",
-        price_deltas,
-        developments,
-    )
+    # 3. Haiku filters for significance
+    developments = _haiku_top_developments(headlines)
+    logger.info("Haiku identified %d key developments", len(developments))
 
-    # --- HTML ---
-    narrative_html = "".join(
-        f"<p>{p.strip()}</p>" for p in narrative.split("\n\n") if p.strip()
-    )
+    # 4. Load geopolitical brief
+    geo_brief = {}
+    try:
+        geo_brief = get_latest_geopolitical_brief() or {}
+    except Exception as e:
+        logger.warning("Could not load geo brief: %s", e)
 
-    def delta_html(key, label, unit):
-        d = price_deltas.get(key)
-        p = current_prices.get(key)
-        if p is None:
-            return (f'<div class="price-delta">'
-                    f'<span class="label">{label}</span>'
-                    f'<span class="val">—</span></div>')
-        if d is None:
-            # Have current price but no morning baseline — show price without delta
-            return (f'<div class="price-delta">'
-                    f'<span class="label">{label}</span>'
-                    f'<span class="val">${p:.2f} {unit}</span>'
-                    f'<span class="chg" style="color:#6b6560">delta unavailable</span>'
-                    f'</div>')
-        color = "#22c55e" if d >= 0 else "#ef4444"
-        sign = "+" if d >= 0 else ""
-        return (f'<div class="price-delta">'
-                f'<span class="label">{label}</span>'
-                f'<span class="val">${p:.2f} {unit}</span>'
-                f'<span class="chg" style="color:{color}">{sign}{d:.2f}% today</span>'
-                f'</div>')
+    # 5. Sonnet close
+    narrative = _sonnet_close(price_movement, developments, geo_brief)
+    logger.info("Sonnet close generated (%d chars)", len(narrative))
 
-    if developments:
-        dev_cards = "".join(f"""
-        <div class="dev-card">
-            <div class="dev-header">
-                <span class="dev-ticker">{d['ticker']}</span>
-                <span class="dev-tag" style="border-color:{_impact_color(d['signal_impact'])};color:{_impact_color(d['signal_impact'])}">{_impact_label(d['signal_impact'])}</span>
-            </div>
-            <div class="dev-headline">{d['headline']}</div>
-            <div class="dev-summary">{d['summary']}</div>
-        </div>""" for d in developments)
-    else:
-        dev_cards = '<p style="color:var(--muted);font-size:0.8rem;font-style:italic">No material company-level developments identified today.</p>'
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Evening Brief — {date_str}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;1,8..60,300&display=swap" rel="stylesheet">
-    <style>
-        :root {{
-            --bg:#0a0a0a; --card:#111; --border:#222; --border2:#2a2a2a;
-            --gold:#c9a84c; --text:#e8e2d6; --muted:#6b6560; --dim:#9a9490;
-        }}
-        * {{ box-sizing:border-box; margin:0; padding:0; }}
-        body {{ background:var(--bg); color:var(--text); font-family:'Source Serif 4',serif; font-size:15px; line-height:1.7; }}
-        header {{ border-bottom:1px solid var(--border); padding:0 clamp(1.5rem,5vw,4rem); }}
-        .masthead {{ padding:2rem 0 1.5rem; text-align:center; }}
-        .eyebrow {{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; letter-spacing:0.3em; color:var(--gold); text-transform:uppercase; margin-bottom:0.75rem; }}
-        h1 {{ font-family:'Playfair Display',serif; font-size:clamp(2rem,5vw,3.5rem); font-weight:900; line-height:1; }}
-        h1 em {{ font-style:italic; color:var(--gold); }}
-        .sub {{ margin-top:0.75rem; font-size:0.8rem; font-style:italic; color:var(--muted); }}
-        .datestamp {{ display:inline-block; margin-top:1rem; font-family:'IBM Plex Mono',monospace; font-size:0.6rem; color:var(--muted); letter-spacing:0.15em; text-transform:uppercase; padding:0.3rem 0.75rem; border:1px solid var(--border2); }}
-        main {{ max-width:900px; margin:0 auto; padding:2.5rem clamp(1.5rem,5vw,4rem); }}
-        .section-label {{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; letter-spacing:0.25em; text-transform:uppercase; color:var(--gold); margin-bottom:1rem; display:flex; align-items:center; gap:0.75rem; }}
-        .section-label::after {{ content:''; flex:1; height:1px; background:var(--border); }}
-        .prices {{ display:flex; gap:1px; background:var(--border); margin-bottom:2.5rem; }}
-        .price-delta {{ flex:1; background:var(--card); padding:1rem 1.25rem; }}
-        .price-delta .label {{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; color:var(--muted); letter-spacing:0.1em; text-transform:uppercase; display:block; margin-bottom:0.35rem; }}
-        .price-delta .val {{ font-family:'IBM Plex Mono',monospace; font-size:1.1rem; display:block; }}
-        .price-delta .chg {{ font-family:'IBM Plex Mono',monospace; font-size:0.7rem; display:block; margin-top:0.2rem; }}
-        .brief {{ border:1px solid var(--border); border-left:3px solid var(--gold); background:var(--card); padding:1.75rem 2rem; margin-bottom:2.5rem; }}
-        .brief p {{ font-size:0.95rem; font-weight:300; margin-bottom:0.75rem; }}
-        .brief p:last-child {{ margin-bottom:0; }}
-        .dev-card {{ background:var(--card); border:1px solid var(--border); padding:1rem 1.25rem; margin-bottom:0.75rem; }}
-        .dev-header {{ display:flex; align-items:center; gap:0.75rem; margin-bottom:0.4rem; }}
-        .dev-ticker {{ font-family:'IBM Plex Mono',monospace; font-size:0.8rem; color:var(--text); font-weight:500; }}
-        .dev-tag {{ font-family:'IBM Plex Mono',monospace; font-size:0.55rem; letter-spacing:0.08em; padding:0.15rem 0.5rem; border:1px solid; }}
-        .dev-headline {{ font-size:0.88rem; font-weight:300; color:var(--text); margin-bottom:0.3rem; }}
-        .dev-summary {{ font-family:'IBM Plex Mono',monospace; font-size:0.62rem; color:var(--dim); line-height:1.5; }}
-        .disclaimer {{ margin-top:2.5rem; padding:1rem 1.25rem; border:1px solid var(--border2); font-family:'IBM Plex Mono',monospace; font-size:0.6rem; color:var(--muted); line-height:1.6; letter-spacing:0.03em; }}
-        .disclaimer strong {{ color:var(--dim); }}
-        footer {{ border-top:1px solid var(--border); padding:1.5rem clamp(1.5rem,5vw,4rem); display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem; }}
-        .footer-l {{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; color:var(--muted); }}
-        a.back {{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; color:var(--gold); text-decoration:none; }}
-    </style>
-</head>
-<body>
-<header>
-    <div class="masthead">
-        <div class="eyebrow">Evening Brief</div>
-        <h1>Daily <em>Energy</em> Close</h1>
-        <div class="sub">End-of-day update · CommodityBot Research</div>
-        <div class="datestamp">{date_str} · Published 17:30 PST</div>
-    </div>
-</header>
-<main>
-    <div class="section-label">Price Movement Today</div>
-    <div class="prices">
-        {delta_html('oil', 'Crude Oil WTI', '$/bbl')}
-        {delta_html('natural_gas', 'Natural Gas', '$/MMBtu')}
-        {delta_html('uranium', 'Uranium (URNM)', '$/share')}
-    </div>
-
-    <div class="section-label">Evening Analysis</div>
-    <div class="brief">{narrative_html}</div>
-
-    <div class="section-label">Company Developments</div>
-    <div class="developments">{dev_cards}</div>
-
-    {DISCLAIMER}
-</main>
-<footer>
-    <div class="footer-l">THE DAILY ENERGY JERKOFF · EVENING BRIEF<br>PUBLISHED DAILY AT 17:30 PST</div>
-    <a class="back" href="/">← Morning Report</a>
-</footer>
-</body>
-</html>"""
-
-    insert_evening_digest({
+    # 6. Render and save
+    html = _render_html(date_str, price_movement, developments, narrative)
+    save_evening_digest({
         "date_str": date_str,
         "html": html,
-        "narrative": narrative,
         "generated_at": datetime.utcnow().isoformat(),
     })
-    logger.info("=== Evening digest complete — %d material developments surfaced ===", len(developments))
-    return html
+
+    logger.info("=== Evening digest complete ===")
