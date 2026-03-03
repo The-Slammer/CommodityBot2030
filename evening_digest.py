@@ -18,7 +18,7 @@ from database import (
     get_conn,
     get_av_items_since,
     get_latest_geopolitical_brief,
-    save_evening_digest,
+    insert_evening_digest,
 )
 
 logger = logging.getLogger(__name__)
