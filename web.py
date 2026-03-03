@@ -129,6 +129,9 @@ def _build_price_ticker() -> str:
             ticker_item("WTI", "WTI"),
             ticker_item("NATURAL_GAS", "NAT GAS"),
             ticker_item("URNM", "URANIUM"),
+            ticker_item("GOLD", "GOLD"),
+            ticker_item("SILVER", "SILVER"),
+            ticker_item("COPPER", "COPPER"),
         ])
 
         # Timestamp from latest WTI poll
