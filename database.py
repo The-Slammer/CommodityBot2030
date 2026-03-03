@@ -116,6 +116,16 @@ def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_digest_generated ON digests(generated_at);
+
+            CREATE TABLE IF NOT EXISTS commodity_prices (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol      TEXT NOT NULL,
+                price       REAL NOT NULL,
+                source      TEXT NOT NULL DEFAULT 'alphavantage',
+                polled_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_commodity_prices_symbol ON commodity_prices(symbol);
+            CREATE INDEX IF NOT EXISTS idx_commodity_prices_polled ON commodity_prices(polled_at);
         """)
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -226,6 +236,35 @@ def log_poll(source_name: str, source_type: str, items_found: int,
 
 
 # --- Digest ---
+def insert_commodity_price(symbol: str, price: float, source: str = "alphavantage"):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO commodity_prices (symbol, price, source, polled_at) VALUES (?, ?, ?, ?)",
+            (symbol, price, source, datetime.utcnow().isoformat())
+        )
+
+
+def get_latest_commodity_price(symbol: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT symbol, price, polled_at FROM commodity_prices
+            WHERE symbol = ? ORDER BY polled_at DESC LIMIT 1
+        """, (symbol,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_commodity_price_series(symbol: str, days: int = 7) -> list:
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT DATE(polled_at) as date, MAX(price) as price
+            FROM commodity_prices
+            WHERE symbol = ? AND polled_at >= ?
+            GROUP BY DATE(polled_at)
+            ORDER BY date DESC
+        """, (symbol, cutoff)).fetchall()
+        return [{"date": r["date"], "value": r["price"]} for r in rows]
+
 
 def get_av_items_since(since_timestamp: str) -> list:
     """Return all AV items ingested since a specific timestamp, grouped with ticker info."""
