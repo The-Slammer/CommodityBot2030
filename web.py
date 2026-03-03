@@ -5,6 +5,7 @@ web.py — Flask server. Routes: /, /evening, /weekly, /stats, /health, /trigger
 import logging
 import os
 import threading
+import json
 from datetime import datetime
 
 from flask import Flask, Response, redirect
@@ -80,8 +81,60 @@ def _inject_disclaimer(html: str) -> str:
     return html.replace("</body>", f"{DISCLAIMER_FOOTER}</body>", 1)
 
 
+def _build_price_ticker() -> str:
+    """Build the price ticker strip from latest digest price_sentiments."""
+    try:
+        digest = get_latest_digest()
+        if not digest or not digest.get("price_sentiments"):
+            return ""
+        ps = json.loads(digest["price_sentiments"])
+
+        def ticker_item(key, label, unit):
+            data = ps.get(key, {})
+            price = data.get("current")
+            chg = data.get("change_pct")
+            if price is None:
+                return (f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.6rem;'
+                        f'color:#6b6560;letter-spacing:0.06em">{label} —</span>')
+            color = "#22c55e" if (chg or 0) >= 0 else "#ef4444"
+            sign = "+" if (chg or 0) >= 0 else ""
+            chg_str = f"{sign}{chg:.2f}%" if chg is not None else "—"
+            return (
+                f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.6rem;'
+                f'color:#9a9490;letter-spacing:0.06em">'
+                f'<span style="color:#6b6560">{label}</span> '
+                f'<span style="color:#e8e2d6">${price:.2f}</span>'
+                f'<span style="color:{color};margin-left:0.4rem">{chg_str} (7d)</span>'
+                f'</span>'
+            )
+
+        generated = digest.get("generated_at", "")[:16].replace("T", " ") + " UTC" if digest.get("generated_at") else ""
+
+        items = "  ·  ".join([
+            ticker_item("oil", "WTI", "$/bbl"),
+            ticker_item("natural_gas", "NAT GAS", "$/MMBtu"),
+            ticker_item("uranium", "URANIUM", "$/share"),
+        ])
+
+        return (
+            f'<div style="background:#0a0a0a;border-bottom:1px solid #1a1a1a;'
+            f'padding:0.35rem clamp(1.5rem,5vw,4rem);display:flex;'
+            f'align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">'
+            f'<div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">{items}</div>'
+            f'<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.55rem;'
+            f'color:#3a3a3a;letter-spacing:0.06em">as of {generated}</span>'
+            f'</div>'
+        )
+    except Exception:
+        return ""
+
+
 def _wrap(html: str) -> str:
-    return _inject_disclaimer(_inject_nav(html))
+    ticker = _build_price_ticker()
+    html = _inject_disclaimer(_inject_nav(html))
+    # Inject price ticker right after the opening <nav> tag closes
+    html = html.replace("</nav>", f"</nav>{ticker}", 1)
+    return html
 
 
 @app.route("/")
@@ -405,6 +458,85 @@ a{{color:#c9a84c;text-decoration:none}}
 </div></body></html>"""), mimetype="text/html")
 
 
+@app.route("/diag/av")
+def diag_av():
+    """Diagnostic endpoint — tests AV entitlement by fetching XOM quote and WTI price."""
+    import requests, os
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY", "")
+    base = "https://www.alphavantage.co/query"
+    results = {}
+
+    # Test 1: equity quote (should work on any plan)
+    try:
+        r = requests.get(base, params={"function": "GLOBAL_QUOTE", "symbol": "XOM", "apikey": api_key}, timeout=10)
+        data = r.json()
+        gq = data.get("Global Quote", {})
+        results["equity_quote"] = {
+            "status": "OK" if gq.get("05. price") else "EMPTY",
+            "price": gq.get("05. price"),
+            "note": data.get("Note") or data.get("Information") or "none",
+        }
+    except Exception as e:
+        results["equity_quote"] = {"status": "ERROR", "error": str(e)}
+
+    # Test 2: WTI commodity (requires premium)
+    try:
+        r = requests.get(base, params={"function": "WTI", "interval": "daily", "apikey": api_key}, timeout=10)
+        data = r.json()
+        entries = data.get("data", [])
+        results["wti_commodity"] = {
+            "status": "OK" if entries else "EMPTY",
+            "latest": entries[0] if entries else None,
+            "note": data.get("Note") or data.get("Information") or "none",
+        }
+    except Exception as e:
+        results["wti_commodity"] = {"status": "ERROR", "error": str(e)}
+
+    # Test 3: intraday (tests realtime/delayed entitlement)
+    try:
+        r = requests.get(base, params={
+            "function": "TIME_SERIES_INTRADAY", "symbol": "XOM",
+            "interval": "5min", "outputsize": "compact", "apikey": api_key
+        }, timeout=10)
+        data = r.json()
+        series = data.get("Time Series (5min)", {})
+        latest_ts = max(series.keys()) if series else None
+        results["intraday"] = {
+            "status": "OK" if series else "EMPTY",
+            "latest_timestamp": latest_ts,
+            "note": data.get("Note") or data.get("Information") or "none",
+        }
+    except Exception as e:
+        results["intraday"] = {"status": "ERROR", "error": str(e)}
+
+    results["checked_at"] = datetime.utcnow().isoformat() + "Z"
+
+    html = f"""<!DOCTYPE html>
+<html><head><title>AV Diagnostic</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;font-size:13px;padding:2rem}}
+h1{{color:#c9a84c;font-size:0.9rem;letter-spacing:0.2em}}
+.card{{background:#111;border:1px solid #222;padding:1rem;margin:0.75rem 0;max-width:700px}}
+.card h2{{color:#c9a84c;font-size:0.7rem;letter-spacing:0.1em;margin:0 0 0.5rem}}
+.ok{{color:#22c55e}}.empty{{color:#ef4444}}.error{{color:#ef4444}}
+pre{{color:#9a9490;font-size:0.68rem;line-height:1.6;margin:0}}
+</style></head><body>
+<h1>ALPHAVANTAGE DIAGNOSTIC</h1>
+<p style="color:#6b6560;font-size:0.65rem">{results["checked_at"]}</p>
+"""
+    for test, res in results.items():
+        if test == "checked_at":
+            continue
+        status = res.get("status", "")
+        color_class = "ok" if status == "OK" else "error"
+        html += f'<div class="card"><h2>{test.upper()} — <span class="{color_class}">{status}</span></h2>'
+        html += f'<pre>{json.dumps(res, indent=2)}</pre></div>'
+
+    html += "</body></html>"
+    return Response(html, mimetype="text/html")
+
+
 @app.route("/about")
 def about():
     return Response(_wrap("""<!DOCTYPE html>
@@ -446,6 +578,18 @@ li{margin-bottom:0.1rem}
   <div class="source-card"><div class="s-name">Video & Podcast</div><div class="s-desc">Long-form interviews and analysis from a curated set of institutional and independent voices</div></div>
   <div class="source-card"><div class="s-name">News Feeds</div><div class="s-desc">Sector-specific publications covering oil, natural gas, and uranium markets</div></div>
 </div>
+
+<h2>HOW IT SCORES EQUITIES</h2>
+
+<p>Each tracked company gets a composite signal score between -1 and +1, updated every hour. The score combines three inputs:</p>
+
+<ul>
+  <li><strong style="color:#e8e2d6">News sentiment (40%)</strong> — weighted average of recent news coverage, with recency and source credibility factoring in</li>
+  <li><strong style="color:#e8e2d6">Price momentum (40%)</strong> — 14-day price trend and position within the recent trading range</li>
+  <li><strong style="color:#e8e2d6">Earnings transcript (20%)</strong> — tone and content of the most recent earnings call, decayed over time</li>
+</ul>
+
+<p>Scores map to signal labels: Strong Buy, Buy, Neutral, Sell, Strong Sell. The system also tracks how scores are moving between windows, flagging names with accelerating momentum even if they haven't crossed into Strong Buy territory yet.</p>
 
 <h2>THE PAPER TRADING ENGINE</h2>
 
