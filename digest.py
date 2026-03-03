@@ -374,7 +374,6 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         ("\n\nSEC Material Filings (last 36h):" + sec_context if sec_context else "") +
         ("\n\nGEOPOLITICAL CONTEXT:\n" + geo_context if geo_context else "")
     )
-    )
 
     try:
         r = requests.post(
