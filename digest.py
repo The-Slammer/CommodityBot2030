@@ -346,7 +346,6 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
 
     geo_context = ""
     try:
-    try:
         from database import get_latest_geopolitical_brief
         geo = get_latest_geopolitical_brief()
         if geo and geo.get("summary"):
