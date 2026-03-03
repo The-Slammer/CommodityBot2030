@@ -3,6 +3,7 @@ jobs.py — All scheduled jobs.
 
 Schedule (UTC):
   RSS                  — every 15 min
+  Commodity prices     — every 30 min
   AV oil_gas           — every 60 min, offset :00
   AV uranium           — every 60 min, offset :15
   AV precious_metals   — every 60 min, offset :30  (ready for gold/silver)
@@ -34,6 +35,7 @@ from config import RSS_FEEDS, YOUTUBE_CHANNELS, ALPHAVANTAGE_SOURCES, EARNINGS_T
 from rss import poll_all_feeds
 from youtube import poll_all_channels
 from alphavantage import poll_all_sources
+from commodity_prices import poll_commodity_prices
 from digest import generate_digest
 from evening_digest import generate_evening_digest
 from weekly_digest import generate_weekly_digest
@@ -230,6 +232,7 @@ def start_scheduler():
 
     # AV market groups — staggered every 10-15 min to avoid rate limit bursts
     # Each group runs independently on a 60-min cycle at its offset
+    scheduler.add_job(poll_commodity_prices, IntervalTrigger(minutes=30), id="commodity_prices", misfire_grace_time=120)
     scheduler.add_job(run_av_oil_gas,         CronTrigger(minute=0),  id="av_oil_gas",         misfire_grace_time=120)
     scheduler.add_job(run_av_uranium,         CronTrigger(minute=15), id="av_uranium",          misfire_grace_time=120)
     scheduler.add_job(run_av_precious_metals, CronTrigger(minute=30), id="av_precious_metals",  misfire_grace_time=120)
