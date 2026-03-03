@@ -28,6 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 _digest_running = False
+_evening_running = False
 
 DISCLAIMER_FOOTER = """<div style="margin:2rem auto;max-width:900px;padding:0 clamp(1.5rem,5vw,4rem)">
 <div style="padding:0.85rem 1.1rem;border:1px solid #2a2a2a;font-family:'IBM Plex Mono',monospace;
@@ -189,7 +190,25 @@ def trigger():
     return Response(_trigger_page(started=True), mimetype="text/html")
 
 
-@app.route("/stats")
+@app.route("/trigger/evening", methods=["POST"])
+def trigger_evening():
+    global _evening_running
+    if _evening_running:
+        return Response(_trigger_page(running=True, label="Evening brief"), mimetype="text/html")
+
+    def run():
+        global _evening_running
+        _evening_running = True
+        try:
+            from evening_digest import generate_evening_digest
+            generate_evening_digest()
+        except Exception as e:
+            logger.error("Manual evening trigger failed: %s", e)
+        finally:
+            _evening_running = False
+
+    threading.Thread(target=run, daemon=True).start()
+    return Response(_trigger_page(started=True, label="Evening brief"), mimetype="text/html")
 def stats():
     from database import get_conn
     import os as _os
@@ -275,6 +294,9 @@ a{{color:#c9a84c;text-decoration:none}}
   <form method="POST" action="/trigger" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Generating...'">
     <button class="btn" type="submit">⚡ Generate Digest Now</button>
   </form>
+  <form method="POST" action="/trigger/evening" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Generating...'">
+    <button class="btn" type="submit" style="background:#1a1a1a;border-color:#2a2a2a">🌙 Regenerate Evening Brief</button>
+  </form>
 </div>
 
 {running_banner}
@@ -311,10 +333,11 @@ do not constitute financial advice. Not a recommendation to buy or sell any secu
 </div></body></html>""", mimetype="text/html")
 
 
-def _trigger_page(started=False, running=False):
-    msg = "A digest is already running." if running else "Digest started — redirecting in 35 seconds..."
+def _trigger_page(started=False, running=False, label="Morning report"):
+    redirect_url = "/evening" if "vening" in label else "/"
+    msg = f"A {label.lower()} is already running." if running else f"{label} started — redirecting in 35 seconds..."
     color = "#8a6f2e" if running else "#22c55e"
-    refresh = '<meta http-equiv="refresh" content="35;url=/">' if started else ""
+    refresh = f'<meta http-equiv="refresh" content="35;url={redirect_url}">' if started else ""
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">{refresh}
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
 <style>body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;
