@@ -1,5 +1,5 @@
 """
-digest.py — Generates the Morning Market Analysis.
+digest.py — Generates the Morning Market <em>Breakdown</em>.
 
 Flow:
   1. Fetch 7-day 1h price data for WTI, Natural Gas, URNM (uranium proxy)
@@ -359,7 +359,7 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         logger.warning("Could not load geopolitical brief: %s", e)
 
     prompt = (
-        "You are a sharp, opinionated energy markets analyst writing the Morning Market Analysis — "
+        "You are a sharp, opinionated energy markets analyst writing the Morning Market <em>Breakdown</em> — "
         "a no-BS morning briefing for serious energy investors. "
         "Write a concise 3-paragraph narrative (150-200 words total) covering: "
         "(1) what the price action is telling us across oil, natural gas, and uranium, "
@@ -482,7 +482,7 @@ def render_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Morning Market Analysis — {date_str}</title>
+    <title>Morning Market <em>Breakdown</em> — {date_str}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;1,8..60,300&display=swap" rel="stylesheet">
@@ -914,7 +914,7 @@ def render_html(
 
 <footer>
     <div class="footer-left">
-        THE Morning Market Analysis<br>
+        THE Morning Market <em>Breakdown</em><br>
         PUBLISHED DAILY AT 06:15 PST
     </div>
     <div class="footer-disclaimer">
