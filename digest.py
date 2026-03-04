@@ -38,7 +38,7 @@ AV_BASE = "https://www.alphavantage.co/query"
 
 COMMODITIES = {
     "oil": {
-        "label": "Crude Oil (WTI)",
+        "label": "WTI Crude Oil",
         "unit": "$/bbl",
         "ticker": "WTI",
         "av_function": "WTI",
@@ -116,7 +116,7 @@ def fetch_price_data() -> dict:
 
     # Map our commodity keys to DB symbols
     SYMBOL_MAP = {
-        "oil": "WTI",
+        "oil": "CRUDE_WTI",
         "natural_gas": "NATURAL_GAS",
         "uranium": "URNM",
     }

@@ -89,7 +89,8 @@ NAV_BAR = """<style>
   <a href="/scanner">Scanner</a>
   <a href="/portfolio">Portfolio</a>
   <a href="/about">About</a>
-  <a href="/stats" class="ml-auto">Stats →</a>
+  <a href="/data-health" class="ml-auto">Health</a>
+  <a href="/stats">Stats →</a>
 </nav>"""
 
 PLACEHOLDER = lambda title, note: f"""<!DOCTYPE html>
@@ -153,17 +154,30 @@ def _build_price_ticker() -> str:
                 f'</span>'
             )
 
+        # Brent shown display-only — not used in benchmarking or digest
+        wti_latest   = get_latest_commodity_price("CRUDE_WTI")
+        brent_latest = get_latest_commodity_price("CRUDE_BRENT")
+        spread_html  = ""
+        if wti_latest and brent_latest:
+            spread = brent_latest["price"] - wti_latest["price"]
+            sign   = "+" if spread >= 0 else ""
+            spread_html = (
+                f' <span style="color:#444;font-size:0.55rem">'
+                f'B/W {sign}{spread:.2f}</span>'
+            )
+
         items = "  ·  ".join([
-            ticker_item("WTI", "WTI"),
+            ticker_item("CRUDE_WTI",   "WTI OIL") + spread_html,
+            ticker_item("CRUDE_BRENT", "BRENT"),
             ticker_item("NATURAL_GAS", "NAT GAS"),
-            ticker_item("URNM", "URANIUM"),
-            ticker_item("GOLD", "GOLD"),
-            ticker_item("SILVER", "SILVER"),
-            ticker_item("COPPER", "COPPER"),
+            ticker_item("URNM",        "URANIUM"),
+            ticker_item("GOLD",        "GOLD"),
+            ticker_item("SILVER",      "SILVER"),
+            ticker_item("COPPER",      "COPPER"),
         ])
 
         # Timestamp from latest WTI poll
-        latest_wti = get_latest_commodity_price("WTI")
+        latest_wti = get_latest_commodity_price("CRUDE_WTI")
         ts = latest_wti["polled_at"][:16].replace("T", " ") + " UTC" if latest_wti else ""
 
         return (
@@ -703,6 +717,312 @@ li{margin-bottom:0.1rem}
 <p>All three reports are written by Claude Sonnet using everything the system collected that day. The goal is something closer to a thoughtful analyst note than a data dump.</p>
 
 </div></body></html>"""), mimetype="text/html")
+
+
+
+
+@app.route("/data-health")
+def data_health():
+    from database import get_conn, get_latest_commodity_price, get_commodity_price_series
+    from datetime import datetime, timedelta
+    import os as _os
+
+    now = datetime.utcnow()
+
+    # --- Commodity price health ---
+    COMMODITY_CHECKS = [
+        {"symbol": "CRUDE_WTI",   "label": "WTI Crude Oil",   "unit": "$/bbl",   "min": 30,  "max": 150, "stale_hours": 2},
+        {"symbol": "CRUDE_BRENT", "label": "Brent Crude",     "unit": "$/bbl",   "min": 30,  "max": 150, "stale_hours": 2},
+        {"symbol": "NATURAL_GAS", "label": "Natural Gas",     "unit": "$/MMBtu", "min": 0.5, "max": 30,  "stale_hours": 2},
+        {"symbol": "URNM",        "label": "URNM (Uranium)",  "unit": "$/share", "min": 10,  "max": 200, "stale_hours": 2},
+        {"symbol": "GOLD",        "label": "Gold",            "unit": "$/oz",    "min": 500, "max": 5000,"stale_hours": 2},
+        {"symbol": "SILVER",      "label": "Silver",          "unit": "$/oz",    "min": 5,   "max": 500, "stale_hours": 2},
+        {"symbol": "COPPER",      "label": "Copper",          "unit": "$/lb",    "min": 1,   "max": 20,  "stale_hours": 2},
+    ]
+
+    def age_str(ts_str):
+        try:
+            ts = datetime.fromisoformat(ts_str[:19])
+            delta = now - ts
+            h = int(delta.seconds // 3600 + delta.days * 24)
+            m = int((delta.seconds % 3600) // 60)
+            if delta.days > 0:
+                return f"{delta.days}d {h % 24}h ago"
+            elif h > 0:
+                return f"{h}h {m}m ago"
+            else:
+                return f"{m}m ago"
+        except Exception:
+            return "unknown"
+
+    commodity_rows = ""
+    commodity_ok = 0
+    commodity_warn = 0
+    commodity_err = 0
+
+    for check in COMMODITY_CHECKS:
+        latest = get_latest_commodity_price(check["symbol"])
+        if not latest:
+            status = "MISSING"
+            color  = "#ef4444"
+            price_str = "—"
+            age_label = "never polled"
+            commodity_err += 1
+        else:
+            price = latest["price"]
+            age   = age_str(latest["polled_at"])
+            price_str = f"${price:.4f}"
+
+            # Check staleness
+            try:
+                ts    = datetime.fromisoformat(latest["polled_at"][:19])
+                delta = now - ts
+                stale = delta > timedelta(hours=check["stale_hours"])
+            except Exception:
+                stale = True
+
+            # Check range
+            out_of_range = price < check["min"] or price > check["max"]
+
+            if out_of_range:
+                status = "OUT OF RANGE"
+                color  = "#ef4444"
+                age_label = age
+                commodity_err += 1
+            elif stale:
+                status = "STALE"
+                color  = "#f59e0b"
+                age_label = age
+                commodity_warn += 1
+            else:
+                status = "OK"
+                color  = "#22c55e"
+                age_label = age
+                commodity_ok += 1
+
+        series = get_commodity_price_series(check["symbol"], days=7)
+        points = len(series) if series else 0
+        oldest = series[-1]["date"][:10] if series else "—"
+
+        commodity_rows += f"""
+        <tr>
+          <td class="label-cell">{check["label"]}</td>
+          <td class="mono">{check["symbol"]}</td>
+          <td class="mono price-cell">{price_str}</td>
+          <td class="mono">{check["unit"]}</td>
+          <td class="mono age-cell">{age_label}</td>
+          <td class="mono">{points} pts (since {oldest})</td>
+          <td><span class="badge" style="border-color:{color};color:{color}">{status}</span></td>
+        </tr>"""
+
+    # --- Equity sentiment health ---
+    with get_conn() as conn:
+        eq_rows = conn.execute("""
+            SELECT ticker, composite_score, label, updated_at, commodity_group
+            FROM equity_sentiment
+            ORDER BY commodity_group, updated_at DESC
+        """).fetchall()
+
+    equity_rows = ""
+    eq_ok = eq_stale = eq_missing = 0
+
+    for row in eq_rows:
+        try:
+            ts    = datetime.fromisoformat(row["updated_at"][:19])
+            delta = now - ts
+            stale = delta > timedelta(hours=4)
+            age   = age_str(row["updated_at"])
+        except Exception:
+            stale = True
+            age   = "unknown"
+
+        if stale:
+            s_color = "#f59e0b"
+            s_label = "STALE"
+            eq_stale += 1
+        else:
+            s_color = "#22c55e"
+            s_label = "OK"
+            eq_ok += 1
+
+        score = row["composite_score"]
+        score_color = "#22c55e" if score >= 0.5 else "#f59e0b" if score >= 0.15 else "#ef4444"
+
+        equity_rows += f"""
+        <tr>
+          <td class="mono" style="color:#e8e2d6">{row["ticker"]}</td>
+          <td class="mono" style="color:{score_color}">{score:.3f}</td>
+          <td class="mono">{row["label"]}</td>
+          <td class="mono">{row["commodity_group"] or "—"}</td>
+          <td class="mono age-cell">{age}</td>
+          <td><span class="badge" style="border-color:{s_color};color:{s_color}">{s_label}</span></td>
+        </tr>"""
+
+    if not equity_rows:
+        equity_rows = "<tr><td colspan='6' class='muted-cell'>No equity signals yet</td></tr>"
+        eq_missing = 1
+
+    # --- Scanner job health ---
+    with get_conn() as conn:
+        scanner_row = conn.execute("""
+            SELECT computed_at FROM scanner_performance
+            ORDER BY computed_at DESC LIMIT 1
+        """).fetchone()
+        scanner_perf_count = conn.execute(
+            "SELECT COUNT(*) FROM scanner_performance"
+        ).fetchone()[0]
+        scanner_sig_count = conn.execute(
+            "SELECT COUNT(*) FROM scanner_signals"
+        ).fetchone()[0]
+        basket_row = conn.execute("""
+            SELECT computed_at FROM scanner_basket_flow
+            ORDER BY computed_at DESC LIMIT 1
+        """).fetchone()
+
+    def scanner_age(row):
+        if not row:
+            return "never run", "#ef4444"
+        a = age_str(row[0])
+        try:
+            delta = now - datetime.fromisoformat(row[0][:19])
+            color = "#22c55e" if delta < timedelta(hours=26) else "#f59e0b"
+        except Exception:
+            color = "#444"
+        return a, color
+
+    scanner_age_str, scanner_color = scanner_age(scanner_row)
+    basket_age_str,  basket_color  = scanner_age(basket_row)
+
+    # --- Digest freshness ---
+    with get_conn() as conn:
+        morning_row = conn.execute(
+            "SELECT generated_at FROM digests ORDER BY generated_at DESC LIMIT 1"
+        ).fetchone()
+        evening_row = conn.execute(
+            "SELECT generated_at FROM evening_digests ORDER BY generated_at DESC LIMIT 1"
+        ).fetchone()
+
+    def digest_status(row, max_hours=26):
+        if not row:
+            return "never generated", "#ef4444", "MISSING"
+        a = age_str(row[0])
+        try:
+            delta = now - datetime.fromisoformat(row[0][:19])
+            ok = delta < timedelta(hours=max_hours)
+        except Exception:
+            ok = False
+        color = "#22c55e" if ok else "#f59e0b"
+        label = "OK" if ok else "STALE"
+        return a, color, label
+
+    m_age, m_color, m_label = digest_status(morning_row)
+    e_age, e_color, e_label = digest_status(evening_row)
+
+    summary_color = "#22c55e" if commodity_err == 0 and commodity_warn == 0 else "#f59e0b" if commodity_err == 0 else "#ef4444"
+    summary_text  = "ALL SYSTEMS OK" if commodity_err == 0 and commodity_warn == 0 else f"{commodity_err} ERRORS · {commodity_warn} WARNINGS" if commodity_err > 0 else f"{commodity_warn} WARNINGS"
+
+    return Response(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Data Health — CommodityBot</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;font-size:13px}}
+.content{{padding:2rem clamp(1.5rem,5vw,4rem);max-width:1400px}}
+h1{{color:#c9a84c;font-size:1.1rem;letter-spacing:0.2em;margin-bottom:0.25rem}}
+h2{{color:#c9a84c;font-size:0.72rem;letter-spacing:0.15em;margin:2rem 0 0.75rem;border-bottom:1px solid #1e1e1e;padding-bottom:0.5rem;text-transform:uppercase}}
+.summary-bar{{display:flex;align-items:center;gap:1rem;padding:0.75rem 1rem;border:1px solid #222;margin:1.25rem 0 2rem;background:#0e0e0e}}
+.summary-dot{{width:8px;height:8px;border-radius:50%}}
+.summary-text{{font-size:0.68rem;letter-spacing:0.15em;text-transform:uppercase;font-weight:500}}
+.summary-ts{{font-size:0.58rem;color:#444;margin-left:auto}}
+.status-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1px;margin-bottom:2rem}}
+.status-card{{background:#0e0e0e;border:1px solid #1a1a1a;padding:1rem 1.1rem}}
+.status-card .sc-label{{font-size:0.58rem;color:#555;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.4rem}}
+.status-card .sc-value{{font-size:1.1rem;color:#e8e2d6;margin-bottom:0.2rem}}
+.status-card .sc-sub{{font-size:0.58rem;color:#444}}
+table{{width:100%;border-collapse:collapse;margin-bottom:2rem}}
+th{{text-align:left;color:#444;font-size:0.6rem;letter-spacing:0.1em;padding:0.5rem 0.6rem;border-bottom:1px solid #1e1e1e;text-transform:uppercase}}
+td{{padding:0.45rem 0.6rem;border-bottom:1px solid #111;color:#9a9490;font-size:0.65rem;vertical-align:middle}}
+.mono{{font-family:'IBM Plex Mono',monospace}}
+.label-cell{{color:#e8e2d6}}
+.price-cell{{color:#c9a84c}}
+.age-cell{{color:#6b6560}}
+.muted-cell{{color:#333;padding:1rem}}
+.badge{{font-size:0.58rem;letter-spacing:0.1em;padding:0.15rem 0.5rem;border:1px solid;text-transform:uppercase}}
+a{{color:#c9a84c;text-decoration:none}}
+.refresh{{font-size:0.6rem;color:#444;margin-top:0.5rem}}
+</style>
+</head>
+<body>{NAV_BAR}
+<div class="content">
+  <h1>DATA HEALTH</h1>
+  <div class="refresh">Auto-refresh: <a href="/data-health">Reload page</a> &nbsp;·&nbsp; as of {now.strftime("%Y-%m-%d %H:%M")} UTC</div>
+
+  <div class="summary-bar">
+    <div class="summary-dot" style="background:{summary_color}"></div>
+    <span class="summary-text" style="color:{summary_color}">{summary_text}</span>
+    <span class="summary-ts">Commodity prices: {commodity_ok} ok · {commodity_warn} stale · {commodity_err} errors</span>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-card">
+      <div class="sc-label">Morning Digest</div>
+      <div class="sc-value" style="font-size:0.85rem;color:{m_color}">{m_label}</div>
+      <div class="sc-sub">{m_age}</div>
+    </div>
+    <div class="status-card">
+      <div class="sc-label">Evening Brief</div>
+      <div class="sc-value" style="font-size:0.85rem;color:{e_color}">{e_label}</div>
+      <div class="sc-sub">{e_age}</div>
+    </div>
+    <div class="status-card">
+      <div class="sc-label">Scanner Performance</div>
+      <div class="sc-value" style="font-size:0.85rem;color:{scanner_color}">{scanner_perf_count} tickers</div>
+      <div class="sc-sub">last run {scanner_age_str}</div>
+    </div>
+    <div class="status-card">
+      <div class="sc-label">Basket Flow</div>
+      <div class="sc-value" style="font-size:0.85rem;color:{basket_color}">computed</div>
+      <div class="sc-sub">last run {basket_age_str}</div>
+    </div>
+    <div class="status-card">
+      <div class="sc-label">Scanner Signals</div>
+      <div class="sc-value">{scanner_sig_count}</div>
+      <div class="sc-sub">flagged tickers</div>
+    </div>
+    <div class="status-card">
+      <div class="sc-label">Equity Signals</div>
+      <div class="sc-value">{eq_ok + eq_stale}</div>
+      <div class="sc-sub">{eq_ok} fresh · {eq_stale} stale</div>
+    </div>
+  </div>
+
+  <h2>Commodity Prices</h2>
+  <table>
+    <thead><tr>
+      <th>Commodity</th><th>Symbol</th><th>Latest Price</th><th>Unit</th>
+      <th>Age</th><th>History (7d)</th><th>Status</th>
+    </tr></thead>
+    <tbody>{commodity_rows}</tbody>
+  </table>
+
+  <h2>Equity Sentiment Signals</h2>
+  <table>
+    <thead><tr>
+      <th>Ticker</th><th>Score</th><th>Label</th><th>Group</th><th>Age</th><th>Status</th>
+    </tr></thead>
+    <tbody>{equity_rows}</tbody>
+  </table>
+
+  <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #1a1a1a">
+    <a href="/stats">← Back to Stats</a>
+  </div>
+</div>
+</body>
+</html>""", mimetype="text/html")
 
 
 def start_web_server():

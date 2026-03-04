@@ -799,7 +799,8 @@ NAV = """<style>
   <a href="/scanner">Scanner</a>
   <a href="/portfolio">Portfolio</a>
   <a href="/about">About</a>
-  <a href="/stats" class="ml-auto">Stats →</a>
+  <a href="/data-health" class="ml-auto">Health</a>
+  <a href="/stats">Stats →</a>
 </nav>"""
 
 DEV_BANNER = """<div style="background:#0d0d0d;border-bottom:1px solid #1a1a1a;padding:0.3rem clamp(1.5rem,5vw,4rem);text-align:center">
