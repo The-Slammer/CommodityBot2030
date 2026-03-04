@@ -140,6 +140,11 @@ def run_morning_digest_job():
     logger.info("=== Morning digest job ===")
     try:
         check_earnings_calendar(EARNINGS_TRACKED_TICKERS)
+        logger.info("Pre-digest commodity price refresh...")
+        poll_commodity_prices()
+    except Exception as e:
+        logger.warning("Pre-digest price refresh failed (continuing): %s", e)
+    try:
         generate_digest()
     except Exception as e:
         logger.error("Morning digest failed: %s", e)
