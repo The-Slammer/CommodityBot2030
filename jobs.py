@@ -68,6 +68,15 @@ except ImportError as e:
     _trading_available = False
     def run_trading_window(window): pass
     def run_eod_settlement(): pass
+
+try:
+    from scanner import run_scanner_job
+    _scanner_available = True
+except ImportError as e:
+    import logging; logging.getLogger(__name__).warning("scanner module unavailable: %s", e)
+    _scanner_available = False
+    def run_scanner_job(): pass
+
 from web import start_web_server
 
 logger = logging.getLogger(__name__)
@@ -280,8 +289,21 @@ def start_scheduler():
         misfire_grace_time=300
     )
 
+    # Nightly scanner — 02:00 UTC (after markets close, before geo brief at 05:00)
+    scheduler.add_job(run_scanner_job_wrapper, CronTrigger(hour=2, minute=0, timezone="UTC"), id="scanner_nightly", misfire_grace_time=600)
+
     logger.info(
         "Scheduler started — %d jobs registered | AV interval: %dmin",
         len(scheduler.get_jobs()), AV_POLL_INTERVAL
     )
     scheduler.start()
+
+
+def run_scanner_job_wrapper():
+    logger.info("=== Nightly scanner job ===")
+    try:
+        from database import init_scanner_tables
+        init_scanner_tables()
+        run_scanner_job()
+    except Exception as e:
+        logger.error("Scanner job failed: %s", e)

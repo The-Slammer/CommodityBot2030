@@ -913,3 +913,57 @@ def get_equity_score_velocity(ticker: str) -> float:
     recent = recent_row["avg_score"] if recent_row and recent_row["avg_score"] else 0.0
     prior  = prior_row["avg_score"]  if prior_row  and prior_row["avg_score"]  else 0.0
     return round(recent - prior, 4)
+
+
+# ---------------------------------------------------------------------------
+# Scanner tables (added for nightly scanner job)
+# ---------------------------------------------------------------------------
+
+def init_scanner_tables():
+    """Create scanner tables if not present. Called from init_db or on first scanner run."""
+    with get_conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS scanner_price_cache (
+                ticker      TEXT PRIMARY KEY,
+                series      TEXT NOT NULL,
+                cached_at   TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS scanner_signals (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker          TEXT NOT NULL,
+                commodity_group TEXT NOT NULL,
+                signal_type     TEXT NOT NULL,
+                label           TEXT NOT NULL,
+                value           REAL,
+                detail          TEXT,
+                computed_at     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ss_type    ON scanner_signals(signal_type);
+            CREATE INDEX IF NOT EXISTS idx_ss_group   ON scanner_signals(commodity_group);
+            CREATE INDEX IF NOT EXISTS idx_ss_computed ON scanner_signals(computed_at);
+
+            CREATE TABLE IF NOT EXISTS scanner_performance (
+                ticker          TEXT NOT NULL,
+                commodity_group TEXT NOT NULL,
+                pct_30d         REAL,
+                pct_60d         REAL,
+                pct_90d         REAL,
+                price_latest    REAL,
+                price_30d       REAL,
+                price_60d       REAL,
+                price_90d       REAL,
+                high_52w        REAL,
+                low_52w         REAL,
+                computed_at     TEXT NOT NULL,
+                PRIMARY KEY (ticker)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sp_group   ON scanner_performance(commodity_group);
+            CREATE INDEX IF NOT EXISTS idx_sp_30d     ON scanner_performance(pct_30d);
+
+            CREATE TABLE IF NOT EXISTS scanner_job_checkpoint (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                tickers_done TEXT NOT NULL,
+                started_at  TEXT NOT NULL
+            );
+        """)
