@@ -865,21 +865,27 @@ def data_health():
         eq_missing = 1
 
     # --- Scanner job health ---
-    with get_conn() as conn:
-        scanner_row = conn.execute("""
-            SELECT computed_at FROM scanner_performance
-            ORDER BY computed_at DESC LIMIT 1
-        """).fetchone()
-        scanner_perf_count = conn.execute(
-            "SELECT COUNT(*) FROM scanner_performance"
-        ).fetchone()[0]
-        scanner_sig_count = conn.execute(
-            "SELECT COUNT(*) FROM scanner_signals"
-        ).fetchone()[0]
-        basket_row = conn.execute("""
-            SELECT computed_at FROM scanner_basket_flow
-            ORDER BY computed_at DESC LIMIT 1
-        """).fetchone()
+    try:
+        with get_conn() as conn:
+            scanner_row = conn.execute("""
+                SELECT computed_at FROM scanner_performance
+                ORDER BY computed_at DESC LIMIT 1
+            """).fetchone()
+            scanner_perf_count = conn.execute(
+                "SELECT COUNT(*) FROM scanner_performance"
+            ).fetchone()[0]
+            scanner_sig_count = conn.execute(
+                "SELECT COUNT(*) FROM scanner_signals"
+            ).fetchone()[0]
+            basket_row = conn.execute("""
+                SELECT computed_at FROM scanner_basket_flow
+                ORDER BY computed_at DESC LIMIT 1
+            """).fetchone()
+    except Exception:
+        scanner_row = None
+        scanner_perf_count = 0
+        scanner_sig_count = 0
+        basket_row = None
 
     def scanner_age(row):
         if not row:

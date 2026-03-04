@@ -468,35 +468,46 @@ def run_scanner_job():
 # ---------------------------------------------------------------------------
 
 def _get_signals() -> list:
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT * FROM scanner_signals ORDER BY signal_type, commodity_group, value DESC
-        """).fetchall()
-        return [dict(r) for r in rows]
+    try:
+        with get_conn() as conn:
+            rows = conn.execute("""
+                SELECT * FROM scanner_signals ORDER BY signal_type, commodity_group, value DESC
+            """).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning("scanner_signals not available yet: %s", e)
+        return []
 
 
 def _get_performance_by_group() -> dict:
     """Returns {group: [sorted performance records]} for all groups."""
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT * FROM scanner_performance ORDER BY commodity_group, pct_30d DESC
-        """).fetchall()
-    result = {}
-    for row in rows:
-        g = row["commodity_group"]
-        if g not in result:
-            result[g] = []
-        result[g].append(dict(row))
-    return result
+    try:
+        with get_conn() as conn:
+            rows = conn.execute("""
+                SELECT * FROM scanner_performance ORDER BY commodity_group, pct_30d DESC
+            """).fetchall()
+        result = {}
+        for row in rows:
+            g = row["commodity_group"]
+            if g not in result:
+                result[g] = []
+            result[g].append(dict(row))
+        return result
+    except Exception as e:
+        logger.warning("scanner_performance not available yet: %s", e)
+        return {}
 
 
 def _get_computed_at() -> str:
-    with get_conn() as conn:
-        row = conn.execute("""
-            SELECT computed_at FROM scanner_performance
-            ORDER BY computed_at DESC LIMIT 1
-        """).fetchone()
-        return row["computed_at"][:16].replace("T", " ") + " UTC" if row else "Not yet computed"
+    try:
+        with get_conn() as conn:
+            row = conn.execute("""
+                SELECT computed_at FROM scanner_performance
+                ORDER BY computed_at DESC LIMIT 1
+            """).fetchone()
+            return row["computed_at"][:16].replace("T", " ") + " UTC" if row else "First run at 02:00 UTC tonight"
+    except Exception:
+        return "First run at 02:00 UTC tonight"
 
 
 
@@ -521,19 +532,23 @@ def _save_basket_flow(record: dict):
 
 def _get_basket_flow() -> list:
     group_order = ["oil_gas", "uranium", "gold_miners", "silver_miners", "copper", "lithium"]
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT * FROM scanner_basket_flow ORDER BY computed_at DESC
-        """).fetchall()
-    results = {r["commodity_group"]: dict(r) for r in rows}
-    ordered = []
-    for g in group_order:
-        if g in results:
-            ordered.append(results[g])
-    for g, r in results.items():
-        if g not in group_order:
-            ordered.append(r)
-    return ordered
+    try:
+        with get_conn() as conn:
+            rows = conn.execute("""
+                SELECT * FROM scanner_basket_flow ORDER BY computed_at DESC
+            """).fetchall()
+        results = {r["commodity_group"]: dict(r) for r in rows}
+        ordered = []
+        for g in group_order:
+            if g in results:
+                ordered.append(results[g])
+        for g, r in results.items():
+            if g not in group_order:
+                ordered.append(r)
+        return ordered
+    except Exception as e:
+        logger.warning("scanner_basket_flow not available yet: %s", e)
+        return []
 
 
 def _relative_strength(stock_series: list, etf_series: list, days: int) -> float | None:

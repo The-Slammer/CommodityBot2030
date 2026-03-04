@@ -146,6 +146,8 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_chart_cache_symbol ON chart_cache(symbol);
             CREATE INDEX IF NOT EXISTS idx_chart_cache_cached ON chart_cache(cached_at);
         """)
+    # Always create scanner tables at startup
+    init_scanner_tables()
     logger.info("Database initialized at %s", DB_PATH)
 
 
@@ -916,11 +918,11 @@ def get_equity_score_velocity(ticker: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Scanner tables (added for nightly scanner job)
+# Scanner tables — always initialised at startup via init_db()
 # ---------------------------------------------------------------------------
 
 def init_scanner_tables():
-    """Create scanner tables if not present. Called from init_db or on first scanner run."""
+    """Create scanner tables if not present. Always called from init_db at startup."""
     with get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS scanner_price_cache (
