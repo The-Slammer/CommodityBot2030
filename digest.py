@@ -130,6 +130,19 @@ def fetch_price_data() -> dict:
             series = get_commodity_price_series(symbol, days=7)
             if series:
                 prices[key] = series
+                # Warn if data is stale (over 2 hours old)
+                try:
+                    from datetime import datetime, timedelta
+                    latest_ts = series[0].get("date") or ""
+                    if len(latest_ts) > 10:
+                        age = datetime.utcnow() - datetime.fromisoformat(latest_ts[:19])
+                        if age > timedelta(hours=2):
+                            logger.warning(
+                                "Stale price data for %s — latest point is %dh %dm old",
+                                key, int(age.seconds // 3600), int((age.seconds % 3600) // 60)
+                            )
+                except Exception:
+                    pass
                 logger.info("Price data for %s loaded from DB (%d points)", key, len(series))
                 continue
 
