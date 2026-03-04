@@ -110,8 +110,12 @@ def run_av_uranium():
     _run_av_group("uranium")
 
 
-def run_av_precious_metals():
-    _run_av_group("precious_metals")
+def run_av_gold_miners():
+    _run_av_group("gold_miners")
+
+
+def run_av_silver_miners():
+    _run_av_group("silver_miners")
 
 
 def run_av_copper():
@@ -251,7 +255,8 @@ def start_scheduler():
     scheduler.add_job(generate_geopolitical_brief, CronTrigger(hour=5, minute=0), id="geo_brief", misfire_grace_time=300)
     scheduler.add_job(run_av_oil_gas,         CronTrigger(minute=0),  id="av_oil_gas",         misfire_grace_time=120)
     scheduler.add_job(run_av_uranium,         CronTrigger(minute=15), id="av_uranium",          misfire_grace_time=120)
-    scheduler.add_job(run_av_precious_metals, CronTrigger(minute=30), id="av_precious_metals",  misfire_grace_time=120)
+    scheduler.add_job(run_av_gold_miners,     CronTrigger(minute=30), id="av_gold_miners",      misfire_grace_time=120)
+    scheduler.add_job(run_av_silver_miners,   CronTrigger(minute=35), id="av_silver_miners",    misfire_grace_time=120)
     scheduler.add_job(run_av_copper,          CronTrigger(minute=40), id="av_copper",           misfire_grace_time=120)
     scheduler.add_job(run_av_lithium,         CronTrigger(minute=50), id="av_lithium",          misfire_grace_time=120)
     scheduler.add_job(run_youtube_job, IntervalTrigger(hours=6), id="yt_poll", misfire_grace_time=300)

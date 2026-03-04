@@ -31,7 +31,7 @@ import requests
 from flask import Blueprint, Response
 
 from database import get_conn, get_equity_score_velocity
-from config import ALPHAVANTAGE_SOURCES
+from config import ALPHAVANTAGE_SOURCES, BASKET_BENCHMARKS
 
 logger = logging.getLogger(__name__)
 ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "")
@@ -55,11 +55,13 @@ LOW_52W_THRESHOLD     = 1.03  # price within 3% of 52w low
 
 # Commodity group display labels
 GROUP_LABELS = {
-    "oil_gas":         "Energy (Oil & Gas)",
-    "uranium":         "Uranium",
-    "precious_metals": "Precious Metals",
-    "copper":          "Copper",
-    "lithium":         "Lithium",
+    "oil_gas":          "Energy (Oil & Gas)",
+    "uranium":          "Uranium",
+    "gold_miners":      "Gold Miners",
+    "silver_miners":    "Silver Miners",
+    "precious_metals":  "Precious Metals",   # legacy fallback
+    "copper":           "Copper",
+    "lithium":          "Lithium",
 }
 
 
@@ -391,8 +393,9 @@ def run_scanner_job():
         _clear_performance()
         _save_checkpoint([], now_str)
 
-    all_metrics = []
-    completed   = list(already_done)
+    all_metrics     = []
+    all_price_cache = {}
+    completed       = list(already_done)
 
     # Process in batches
     remaining = [t for t in unique_tickers if t["ticker"] not in already_done]
@@ -415,6 +418,7 @@ def run_scanner_job():
                 time.sleep(CALL_PAUSE_SEC)
 
             if series:
+                all_price_cache[ticker] = series
                 metrics = _compute_metrics(ticker, series, group, now_str)
                 if metrics:
                     all_metrics.append(metrics)
@@ -452,6 +456,12 @@ def run_scanner_job():
     logger.info("=== Scanner job complete — %d tickers processed, %d performance records ===",
                 len(completed), len(all_metrics))
 
+    # Basket flow — uses already-cached price data, minimal extra API calls
+    try:
+        run_basket_flow_job(all_price_cache)
+    except Exception as e:
+        logger.error("Basket flow job failed: %s", e)
+
 
 # ---------------------------------------------------------------------------
 # Data read helpers for page
@@ -488,6 +498,180 @@ def _get_computed_at() -> str:
         """).fetchone()
         return row["computed_at"][:16].replace("T", " ") + " UTC" if row else "Not yet computed"
 
+
+
+
+# ---------------------------------------------------------------------------
+# Basket flow computation
+# ---------------------------------------------------------------------------
+
+def _save_basket_flow(record: dict):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM scanner_basket_flow WHERE commodity_group = ?",
+                     (record["commodity_group"],))
+        conn.execute("""
+            INSERT INTO scanner_basket_flow
+                (commodity_group, benchmark_ticker, etf_pct_5d, etf_pct_10d, etf_pct_30d,
+                 etf_direction, leaders, laggards, catchup, computed_at)
+            VALUES
+                (:commodity_group, :benchmark_ticker, :etf_pct_5d, :etf_pct_10d, :etf_pct_30d,
+                 :etf_direction, :leaders, :laggards, :catchup, :computed_at)
+        """, record)
+
+
+def _get_basket_flow() -> list:
+    group_order = ["oil_gas", "uranium", "gold_miners", "silver_miners", "copper", "lithium"]
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM scanner_basket_flow ORDER BY computed_at DESC
+        """).fetchall()
+    results = {r["commodity_group"]: dict(r) for r in rows}
+    ordered = []
+    for g in group_order:
+        if g in results:
+            ordered.append(results[g])
+    for g, r in results.items():
+        if g not in group_order:
+            ordered.append(r)
+    return ordered
+
+
+def _relative_strength(stock_series: list, etf_series: list, days: int) -> float | None:
+    """
+    Computes (stock_pct_change - etf_pct_change) over N days.
+    Positive = stock outperforming ETF. Negative = underperforming.
+    """
+    s_latest = stock_series[0]["close"] if stock_series else None
+    e_latest = etf_series[0]["close"] if etf_series else None
+    s_old = _price_n_days_ago(stock_series, days)
+    e_old = _price_n_days_ago(etf_series, days)
+    if not all([s_latest, e_latest, s_old, e_old]):
+        return None
+    s_chg = (s_latest - s_old) / s_old * 100
+    e_chg = (e_latest - e_old) / e_old * 100
+    return round(s_chg - e_chg, 2)
+
+
+def run_basket_flow_job(all_price_cache: dict):
+    """
+    Compute basket flow for each commodity group.
+    Called after the main scanner job so ETF price data is already cached.
+    all_price_cache: {ticker: series} dict built during main scanner run.
+    """
+    logger.info("=== Basket flow computation ===")
+    now_str = datetime.utcnow().isoformat()
+
+    # Build ticker → group map
+    ticker_group = {}
+    for s in ALPHAVANTAGE_SOURCES:
+        if s.get("query_type") == "ticker" and s.get("query_value"):
+            ticker_group[s["query_value"]] = s["commodity_group"]
+
+    for group, benchmark in BASKET_BENCHMARKS.items():
+        # Fetch or get cached ETF series
+        etf_series = all_price_cache.get(benchmark)
+        if not etf_series:
+            logger.info("Fetching benchmark ETF: %s for group %s", benchmark, group)
+            etf_series = _fetch_daily_series(benchmark)
+            if etf_series:
+                _save_price_cache(benchmark, etf_series)
+                all_price_cache[benchmark] = etf_series
+            time.sleep(CALL_PAUSE_SEC)
+
+        if not etf_series:
+            logger.warning("No price data for benchmark %s — skipping %s", benchmark, group)
+            continue
+
+        etf_latest = etf_series[0]["close"]
+        etf_p5  = _price_n_days_ago(etf_series, 5)
+        etf_p10 = _price_n_days_ago(etf_series, 10)
+        etf_p30 = _price_n_days_ago(etf_series, 30)
+        etf_pct_5d  = round((etf_latest - etf_p5)  / etf_p5  * 100, 2) if etf_p5  else None
+        etf_pct_10d = round((etf_latest - etf_p10) / etf_p10 * 100, 2) if etf_p10 else None
+        etf_pct_30d = round((etf_latest - etf_p30) / etf_p30 * 100, 2) if etf_p30 else None
+
+        # ETF direction based on 5d move
+        if etf_pct_5d is None:
+            etf_direction = "neutral"
+        elif etf_pct_5d >= 1.5:
+            etf_direction = "inflow"
+        elif etf_pct_5d <= -1.5:
+            etf_direction = "outflow"
+        else:
+            etf_direction = "neutral"
+
+        # Compute relative strength for all stocks in this group
+        rs_scores = []
+        group_tickers = [t for t, g in ticker_group.items() if g == group]
+
+        for ticker in group_tickers:
+            stock_series = all_price_cache.get(ticker)
+            if not stock_series:
+                continue
+            rs_5d  = _relative_strength(stock_series, etf_series, 5)
+            rs_10d = _relative_strength(stock_series, etf_series, 10)
+            rs_30d = _relative_strength(stock_series, etf_series, 30)
+            stock_pct_5d = None
+            if stock_series:
+                s_p5 = _price_n_days_ago(stock_series, 5)
+                if s_p5:
+                    stock_pct_5d = round((stock_series[0]["close"] - s_p5) / s_p5 * 100, 2)
+
+            rs_scores.append({
+                "ticker":      ticker,
+                "rs_5d":       rs_5d,
+                "rs_10d":      rs_10d,
+                "rs_30d":      rs_30d,
+                "stock_pct_5d": stock_pct_5d,
+                "price":       round(stock_series[0]["close"], 2),
+            })
+
+        if not rs_scores:
+            continue
+
+        # Sort by 5d relative strength
+        valid = [x for x in rs_scores if x["rs_5d"] is not None]
+        valid.sort(key=lambda x: x["rs_5d"], reverse=True)
+
+        # Leaders — outperforming ETF most (top 3, positive RS only)
+        leaders = [x for x in valid[:5] if x["rs_5d"] > 0][:3]
+
+        # Laggards — underperforming most (bottom 3, negative RS)
+        laggards = [x for x in reversed(valid) if x["rs_5d"] < 0][:3]
+
+        # Catch-up candidates — ETF moving up but stock hasn't moved yet
+        # High RS on 30d but low on 5d = potential catch-up
+        catchup = []
+        if etf_direction == "inflow":
+            catchup_candidates = [
+                x for x in rs_scores
+                if x.get("rs_30d") is not None and x.get("rs_5d") is not None
+                and x["rs_30d"] > 5        # strong over 30d
+                and x["rs_5d"] < 1         # but lagging this week
+                and x not in laggards
+            ]
+            catchup_candidates.sort(key=lambda x: x.get("rs_30d", 0), reverse=True)
+            catchup = catchup_candidates[:3]
+
+        import json as _json
+        _save_basket_flow({
+            "commodity_group":  group,
+            "benchmark_ticker": benchmark,
+            "etf_pct_5d":       etf_pct_5d,
+            "etf_pct_10d":      etf_pct_10d,
+            "etf_pct_30d":      etf_pct_30d,
+            "etf_direction":    etf_direction,
+            "leaders":          _json.dumps(leaders),
+            "laggards":         _json.dumps(laggards),
+            "catchup":          _json.dumps(catchup),
+            "computed_at":      now_str,
+        })
+        logger.info("Basket flow saved: %s | ETF %s 5d: %s%% | %d leaders %d laggards %d catchup",
+                    group, benchmark,
+                    f"{etf_pct_5d:+.1f}" if etf_pct_5d is not None else "n/a",
+                    len(leaders), len(laggards), len(catchup))
+
+    logger.info("=== Basket flow complete ===")
 
 # ---------------------------------------------------------------------------
 # HTML rendering helpers
@@ -624,7 +808,102 @@ CommodityBot is under continuous development — features are regularly tuned, e
 </span></div>"""
 
 
-def _build_page(signals: list, perf_by_group: dict, computed_at: str) -> str:
+
+
+def _render_basket_flow_section(flows: list) -> str:
+    if not flows:
+        return '<div class="no-signals">Basket flow data not yet computed.</div>'
+
+    blocks = ""
+    for flow in flows:
+        group     = flow["commodity_group"]
+        benchmark = flow["benchmark_ticker"]
+        direction = flow.get("etf_direction", "neutral")
+        pct_5d    = flow.get("etf_pct_5d")
+        pct_10d   = flow.get("etf_pct_10d")
+        pct_30d   = flow.get("etf_pct_30d")
+
+        # Direction badge
+        dir_color = {"inflow": "#22c55e", "outflow": "#ef4444", "neutral": "#6b6560"}[direction]
+        dir_label = {"inflow": "▲ INFLOW", "outflow": "▼ OUTFLOW", "neutral": "— NEUTRAL"}[direction]
+
+        def pct_span(v):
+            if v is None: return '<span class="muted">—</span>'
+            color = "#22c55e" if v >= 0 else "#ef4444"
+            sign  = "+" if v >= 0 else ""
+            return f'<span style="color:{color}">{sign}{v:.1f}%</span>'
+
+        etf_line = (
+            f'<div class="bf-etf">'
+            f'<span class="bf-benchmark">{benchmark}</span>'
+            f'<span class="bf-dir" style="color:{dir_color}">{dir_label}</span>'
+            f'<span class="bf-perfs">'
+            f'5D: {pct_span(pct_5d)} &nbsp; 10D: {pct_span(pct_10d)} &nbsp; 30D: {pct_span(pct_30d)}'
+            f'</span>'
+            f'</div>'
+        )
+
+        import json as _json
+
+        def stock_rows(items_json, label_color):
+            try:
+                items = _json.loads(items_json) if isinstance(items_json, str) else (items_json or [])
+            except Exception:
+                items = []
+            if not items:
+                return '<div class="bf-empty">None flagged</div>'
+            rows = ""
+            for item in items:
+                rs = item.get("rs_5d")
+                sp = item.get("stock_pct_5d")
+                rs_str = f'{rs:+.1f}%' if rs is not None else "—"
+                sp_str = f'{sp:+.1f}%' if sp is not None else "—"
+                rs_color = "#22c55e" if (rs or 0) >= 0 else "#ef4444"
+                rows += (
+                    f'<div class="bf-stock-row">'
+                    f'<span class="bf-stk" style="color:{label_color}">{item["ticker"]}</span>'
+                    f'<span class="bf-price">${item.get("price", 0):.2f}</span>'
+                    f'<span class="bf-rs" style="color:{rs_color}">RS {rs_str}</span>'
+                    f'<span class="muted">own {sp_str} 5d</span>'
+                    f'</div>'
+                )
+            return rows
+
+        leaders_html  = stock_rows(flow.get("leaders", "[]"),  "#22c55e")
+        laggards_html = stock_rows(flow.get("laggards", "[]"), "#ef4444")
+        catchup_html  = stock_rows(flow.get("catchup", "[]"),  "#f59e0b")
+
+        catchup_block = ""
+        if direction == "inflow":
+            catchup_block = f"""
+            <div class="bf-col">
+              <div class="bf-col-title" style="color:#f59e0b">↗ Catch-Up Watch</div>
+              {catchup_html}
+            </div>"""
+
+        blocks += f"""
+<div class="bf-block">
+  <div class="bf-header">
+    <span class="bf-group-name">{GROUP_LABELS.get(group, group)}</span>
+    {etf_line}
+  </div>
+  <div class="bf-cols">
+    <div class="bf-col">
+      <div class="bf-col-title" style="color:#22c55e">▲ Leaders</div>
+      {leaders_html}
+    </div>
+    <div class="bf-col">
+      <div class="bf-col-title" style="color:#ef4444">▼ Laggards</div>
+      {laggards_html}
+    </div>
+    {catchup_block}
+  </div>
+</div>"""
+
+    return blocks
+
+
+def _build_page(signals: list, perf_by_group: dict, computed_at: str, basket_flows: list = None) -> str:
     # Group signals by type group
     signal_groups = {}
     for sig in signals:
@@ -656,6 +935,8 @@ def _build_page(signals: list, perf_by_group: dict, computed_at: str) -> str:
     if not perf_html:
         perf_html = '<div class="no-signals">Performance data not yet computed. Scanner runs nightly at 02:00 UTC.</div>'
 
+    basket_section = _render_basket_flow_section(basket_flows or [])
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -672,6 +953,25 @@ body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;min
 .page-title em{{color:#c9a84c;font-style:italic}}
 .computed-at{{font-size:0.58rem;color:#333;letter-spacing:0.08em}}
 .section-divider{{font-size:0.62rem;color:#c9a84c;letter-spacing:0.2em;text-transform:uppercase;margin:2.5rem 0 1.25rem;padding-bottom:0.5rem;border-bottom:1px solid #1e1e1e}}
+
+/* Basket flow */
+.bf-block{background:#0e0e0e;border:1px solid #1e1e1e;padding:1.25rem;margin-bottom:1px}
+.bf-header{display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;padding-bottom:0.75rem;border-bottom:1px solid #1a1a1a}
+.bf-group-name{font-size:0.68rem;color:#e8e2d6;letter-spacing:0.1em;text-transform:uppercase;min-width:120px}
+.bf-etf{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.bf-benchmark{font-size:0.65rem;color:#c9a84c;letter-spacing:0.1em}
+.bf-dir{font-size:0.6rem;letter-spacing:0.12em;font-weight:500}
+.bf-perfs{font-size:0.6rem;color:#9a9490;letter-spacing:0.05em}
+.bf-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem}
+.bf-col{padding:0}
+.bf-col-title{font-size:0.58rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.5rem}
+.bf-stock-row{display:flex;align-items:center;gap:0.6rem;padding:0.3rem 0;border-bottom:1px solid #111;flex-wrap:wrap}
+.bf-stock-row:last-child{border-bottom:none}
+.bf-stk{font-size:0.7rem;font-weight:500;min-width:3rem}
+.bf-price{font-size:0.62rem;color:#9a9490}
+.bf-rs{font-size:0.62rem;font-weight:500}
+.bf-empty{font-size:0.6rem;color:#333;padding:0.5rem 0;letter-spacing:0.08em}
+
 /* Signals */
 .sig-group-block{{margin-bottom:2rem}}
 .sig-group-title{{font-size:0.6rem;color:#555;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:0.75rem}}
@@ -712,6 +1012,9 @@ body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;min
     <span class="computed-at">Last computed: {computed_at}</span>
   </div>
 
+  <div class="section-divider">Basket Flow — Relative Strength vs Benchmark ETF</div>
+  {basket_section}
+
   <div class="section-divider">Notable Signals</div>
   {signals_html}
 
@@ -736,7 +1039,8 @@ body{{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;min
 
 @scanner_bp.route("/scanner")
 def scanner_page():
-    signals      = _get_signals()
+    signals       = _get_signals()
     perf_by_group = _get_performance_by_group()
-    computed_at  = _get_computed_at()
-    return Response(_build_page(signals, perf_by_group, computed_at), mimetype="text/html")
+    computed_at   = _get_computed_at()
+    basket_flows  = _get_basket_flow()
+    return Response(_build_page(signals, perf_by_group, computed_at, basket_flows), mimetype="text/html")

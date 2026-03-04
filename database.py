@@ -966,4 +966,20 @@ def init_scanner_tables():
                 tickers_done TEXT NOT NULL,
                 started_at  TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS scanner_basket_flow (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                commodity_group TEXT NOT NULL,
+                benchmark_ticker TEXT NOT NULL,
+                etf_pct_5d      REAL,
+                etf_pct_10d     REAL,
+                etf_pct_30d     REAL,
+                etf_direction   TEXT,
+                leaders         TEXT,
+                laggards        TEXT,
+                catchup         TEXT,
+                computed_at     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sbf_group ON scanner_basket_flow(commodity_group);
+            CREATE INDEX IF NOT EXISTS idx_sbf_computed ON scanner_basket_flow(computed_at);
         """)

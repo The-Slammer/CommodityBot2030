@@ -151,3 +151,16 @@ EARNINGS_TRACKED_TICKERS = [
 ]
 
 TOPIC_TAXONOMY = ["oil", "natural_gas", "uranium", "nuclear", "macro", "company_event", "policy"]
+
+# ---------------------------------------------------------------------------
+# Basket benchmarks — Sprott ETFs + best-in-class sector ETFs
+# Maps commodity_group → benchmark ETF ticker
+# ---------------------------------------------------------------------------
+BASKET_BENCHMARKS = {
+    "oil_gas":      "XOP",   # SPDR S&P Oil & Gas Exploration & Production
+    "uranium":      "URNM",  # Sprott Uranium Miners ETF
+    "gold_miners":  "SGDM",  # Sprott Gold Miners ETF
+    "silver_miners":"SILJ",  # Sprott Junior Silver Miners ETF
+    "copper":       "COPP",  # Sprott Copper Miners ETF
+    "lithium":      "LITP",  # Sprott Lithium Miners ETF
+}
