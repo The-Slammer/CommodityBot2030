@@ -771,30 +771,32 @@ NAV = """<style>
 .cb-nav .ml-auto{margin-left:auto}
 .dd{position:relative;display:inline-block}
 .dd-trigger{background:none;border:none;padding:0;font-family:'IBM Plex Mono',monospace}
-.dd-menu{display:none;position:absolute;top:calc(100%+6px);left:0;background:#111;border:1px solid #222;min-width:160px;z-index:200}
+.dd-menu{visibility:hidden;opacity:0;pointer-events:none;position:absolute;top:100%;left:0;padding-top:6px;background:transparent;min-width:160px;z-index:200;transition:opacity 0.12s ease,visibility 0.12s ease;transition-delay:0s}
+.dd-menu-inner{background:#111;border:1px solid #222}
 .dd-menu a{display:block;padding:0.5rem 1rem;font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:#9a9490;text-decoration:none;letter-spacing:0.08em;border-bottom:1px solid #1a1a1a}
 .dd-menu a:last-child{border-bottom:none}
 .dd-menu a:hover,.cb-nav a:hover,.dd-trigger:hover{color:#e8e2d6}
-.dd:hover .dd-menu{display:block}
+.dd:hover .dd-menu{visibility:visible;opacity:1;pointer-events:auto;transition-delay:0s}
+.dd-menu{transition-delay:0s,200ms}
 </style>
 <nav class="cb-nav">
   <span class="brand">CommodityBot</span>
   <div class="dd">
     <button class="dd-trigger">Words ▾</button>
-    <div class="dd-menu">
+    <div class="dd-menu"><div class="dd-menu-inner">
       <a href="/">Morning Report</a>
       <a href="/evening">Evening Brief</a>
       <a href="/weekly">Weekly Wrap</a>
-    </div>
+    </div></div>
   </div>
   <div class="dd">
     <button class="dd-trigger">Charts ▾</button>
-    <div class="dd-menu">
+    <div class="dd-menu"><div class="dd-menu-inner">
       <a href="/charts/energy">Energy</a>
       <a href="/charts/gold-silver">Gold / Silver</a>
       <a href="/charts/copper">Copper</a>
       <a href="/charts/uranium">Uranium</a>
-    </div>
+    </div></div>
   </div>
   <a href="/scanner">Scanner</a>
   <a href="/portfolio">Portfolio</a>
