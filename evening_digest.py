@@ -402,6 +402,7 @@ def generate_evening_digest():
     insert_evening_digest({
         "date_str": date_str,
         "html": html,
+        "narrative": narrative,
         "generated_at": datetime.utcnow().isoformat(),
     })
 

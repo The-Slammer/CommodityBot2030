@@ -11,8 +11,8 @@ COMMODITY_SYMBOLS = [
     {"symbol": "CRUDE_BRENT", "av_function": "BRENT",         "extra_params": {"interval": "daily"}, "response_type": "commodity"},
     {"symbol": "NATURAL_GAS", "av_function": "NATURAL_GAS",   "extra_params": {"interval": "daily"}, "response_type": "commodity"},
     {"symbol": "URNM",        "av_function": "GLOBAL_QUOTE",  "extra_params": {"symbol": "URNM"},    "response_type": "quote"},
-    {"symbol": "GOLD",        "av_function": "GOLD",          "extra_params": {"interval": "daily"}, "response_type": "commodity"},
-    {"symbol": "SILVER",      "av_function": "SILVER",        "extra_params": {"interval": "daily"}, "response_type": "commodity"},
+    {"symbol": "GOLD",   "av_function": "GLOBAL_QUOTE", "extra_params": {"symbol": "GLD"}, "response_type": "quote", "multiplier": 10.0},
+    {"symbol": "SILVER", "av_function": "GLOBAL_QUOTE", "extra_params": {"symbol": "SLV"}, "response_type": "quote", "multiplier": 1.0},
     {"symbol": "COPPER",      "av_function": "COPPER",        "extra_params": {"interval": "daily"}, "response_type": "commodity"},
 ]
 
@@ -31,7 +31,10 @@ def _fetch_price(config):
         else:
             val = data.get("Global Quote", {}).get("05. price", 0)
         price = float(val) if val else None
-        return price if price and price > 0 else None
+        if price and price > 0:
+            multiplier = config.get("multiplier", 1.0)
+            return round(price * multiplier, 4)
+        return None
     except Exception as e:
         logger.error("Price fetch failed for %s: %s", config["symbol"], e)
         return None

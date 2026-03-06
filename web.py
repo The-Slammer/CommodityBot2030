@@ -651,76 +651,150 @@ pre{{color:#9a9490;font-size:0.68rem;line-height:1.6;margin:0}}
 @app.route("/about")
 def about():
     return Response(_wrap("""<!DOCTYPE html>
-<html><head><title>CommodityBot — About</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<html><head><title>CommodityBot \u2014 About</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,900;1,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-body{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;font-size:13px;margin:0}
-.content{padding:2rem clamp(1.5rem,5vw,4rem);max-width:860px}
-h1{color:#c9a84c;font-size:1.1rem;letter-spacing:0.2em;margin-bottom:0.25rem}
-h2{color:#c9a84c;font-size:0.75rem;letter-spacing:0.15em;margin:2.5rem 0 0.75rem;border-bottom:1px solid #222;padding-bottom:0.5rem}
-p{color:#9a9490;line-height:1.8;margin:0 0 1rem;font-size:0.75rem}
-.tag{display:inline-block;border:1px solid #2a2a2a;color:#6b6560;font-size:0.58rem;padding:0.1rem 0.5rem;margin:0.2rem 0.2rem 0.2rem 0;letter-spacing:0.06em}
-.tag.highlight{border-color:#8a6f2e;color:#c9a84c}
-.source-row{display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 1.25rem}
-.source-card{background:#111;border:1px solid #1e1e1e;padding:0.65rem 0.9rem;min-width:160px;flex:1}
-.source-card .s-name{color:#e8e2d6;font-size:0.7rem;margin-bottom:0.2rem}
-.source-card .s-desc{color:#6b6560;font-size:0.6rem;line-height:1.5}
-ul{color:#9a9490;font-size:0.75rem;line-height:1.9;padding-left:1.2rem;margin:0 0 1rem}
-li{margin-bottom:0.1rem}
-.subtitle{color:#6b6560;font-size:0.62rem;letter-spacing:0.08em;margin-bottom:2rem}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0a;color:#e8e2d6;font-family:'IBM Plex Mono',monospace;font-size:13px}
+.content{padding:3rem clamp(1.5rem,5vw,4rem);max-width:900px}
+.hero{margin-bottom:3.5rem;padding-bottom:2.5rem;border-bottom:1px solid #1a1a1a}
+.hero-label{font-size:0.58rem;color:#444;letter-spacing:0.25em;text-transform:uppercase;margin-bottom:1rem}
+.hero-title{font-family:'Playfair Display',serif;font-size:clamp(2.2rem,5vw,3.2rem);color:#e8e2d6;line-height:1.15;margin-bottom:1.5rem}
+.hero-title em{color:#c9a84c;font-style:italic}
+.hero-body{font-size:0.82rem;color:#9a9490;line-height:2;max-width:720px}
+.hero-body strong{color:#c9a84c;font-weight:500}
+h2{font-size:0.62rem;color:#c9a84c;letter-spacing:0.25em;text-transform:uppercase;margin:3rem 0 1.25rem;padding-bottom:0.6rem;border-bottom:1px solid #1a1a1a}
+p{color:#9a9490;line-height:1.9;margin:0 0 1.1rem;font-size:0.78rem}
+p strong{color:#e8e2d6;font-weight:500}
+.factor-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;margin:1.25rem 0 2rem}
+.factor-card{background:#0e0e0e;border:1px solid #1a1a1a;padding:1.1rem 1.25rem}
+.factor-card .fc-icon{font-size:1rem;margin-bottom:0.6rem}
+.factor-card .fc-title{font-size:0.68rem;color:#e8e2d6;letter-spacing:0.08em;margin-bottom:0.5rem;text-transform:uppercase}
+.factor-card .fc-body{font-size:0.65rem;color:#6b6560;line-height:1.7}
+.source-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1px;margin:1.25rem 0 2rem}
+.source-card{background:#0e0e0e;border:1px solid #1a1a1a;padding:1rem 1.1rem}
+.source-card .sc-name{font-size:0.68rem;color:#c9a84c;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem}
+.source-card .sc-desc{font-size:0.63rem;color:#6b6560;line-height:1.6}
+.dev-banner{background:#0e0e0e;border:1px solid #1e1e1e;padding:1.1rem 1.25rem;margin:2.5rem 0;display:flex;align-items:flex-start;gap:1rem}
+.dev-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;margin-top:0.35rem;flex-shrink:0;box-shadow:0 0 6px #22c55e}
+.dev-text{font-size:0.68rem;color:#6b6560;line-height:1.7}
+.dev-text strong{color:#e8e2d6}
+.disclaimer{margin-top:3rem;padding-top:1.5rem;border-top:1px solid #1a1a1a;font-size:0.6rem;color:#333;line-height:1.8}
 </style></head>
 <body><div class="content">
 
-<h1>COMMODITYBOT</h1>
-<div class="subtitle">AUTOMATED ENERGY MARKETS INTELLIGENCE SYSTEM</div>
-
-<p>CommodityBot is a personal research and paper trading system built to monitor energy markets around the clock. It ingests data from dozens of sources, scores equities across oil, natural gas, and uranium sectors, and uses that signal to make autonomous paper trading decisions — testing whether the data it collects actually translates into edge.</p>
-
-<p>It started as an experiment in building a system that thinks like an energy analyst: always watching, always updating, never sleeping. It runs 24/7 on a cloud server and publishes a morning report, evening brief, and weekly wrap — each written by the AI engine using everything it learned that day.</p>
-
-<h2>WHAT IT WATCHES</h2>
-
-<p>The system tracks 79 energy equities across oil & gas E&P, midstream, refining, oilfield services, royalty trusts, and uranium miners. Every hour it pulls fresh news and price data for each name, scores the sentiment, and updates a composite signal that blends news, price momentum, and earnings transcript analysis.</p>
-
-<div class="source-row">
-  <div class="source-card"><div class="s-name">Market Intelligence</div><div class="s-desc">Real-time news sentiment & price data across all tracked equities, updated hourly</div></div>
-  <div class="source-card"><div class="s-name">Government Data</div><div class="s-desc">Official US energy inventory and production reports on scheduled release cycles</div></div>
-  <div class="source-card"><div class="s-name">Regulatory Filings</div><div class="s-desc">Material corporate events monitored in real time as they hit public record</div></div>
-  <div class="source-card"><div class="s-name">Video & Podcast</div><div class="s-desc">Long-form interviews and analysis from a curated set of institutional and independent voices</div></div>
-  <div class="source-card"><div class="s-name">News Feeds</div><div class="s-desc">Sector-specific publications covering oil, natural gas, and uranium markets</div></div>
+<div class="hero">
+  <div class="hero-label">About this system</div>
+  <h1 class="hero-title">The world runs on<br><em>commodities.</em><br>We watch them so you don't have to.</h1>
+  <p class="hero-body">
+    Before the price at the pump changes, before your electricity bill spikes, before a mining stock breaks out or a refiner collapses \u2014 something moved in the commodity markets. A supply disruption. A government report. A geopolitical threshold crossed. <strong>CommodityBot exists to catch those signals as they happen</strong> and surface what matters to the people who need to understand why commodity prices move the way they do.
+  </p>
 </div>
 
-<h2>HOW IT SCORES EQUITIES</h2>
+<h2>Why Commodities Matter to Everyone</h2>
 
-<p>Each tracked company gets a composite signal score between -1 and +1, updated every hour. The score combines three inputs:</p>
+<p>Most people interact with commodity markets every single day without realizing it. The price of crude oil is embedded in the cost of every product that was manufactured, packaged, or shipped. Natural gas is the feedstock for fertilizer \u2014 which means it is inside the cost of food. Copper is in every wire in your home, every EV on the road, every data center running the AI systems reshaping the economy. Gold and silver are the world's oldest stores of value, and they still move in response to the same forces \u2014 currency debasement, geopolitical fear, real interest rates \u2014 that they always have.</p>
 
-<ul>
-  <li><strong style="color:#e8e2d6">News sentiment (40%)</strong> — weighted average of recent news coverage, with recency and source credibility factoring in</li>
-  <li><strong style="color:#e8e2d6">Price momentum (40%)</strong> — 14-day price trend and position within the recent trading range</li>
-  <li><strong style="color:#e8e2d6">Earnings transcript (20%)</strong> — tone and content of the most recent earnings call, decayed over time</li>
-</ul>
+<p>When commodity prices are volatile, the effects ripple outward. Inflation rises. Energy companies expand or contract their drilling programs. Governments shift energy policy. Currencies of commodity-producing nations move. <strong>Understanding what drives commodity prices is understanding how the physical economy actually works</strong> \u2014 underneath the financial abstraction, underneath the headlines, at the level of barrels and BTUs and tonnes.</p>
 
-<p>Scores map to signal labels: Strong Buy, Buy, Neutral, Sell, Strong Sell. The system also tracks how scores are moving between windows, flagging names with accelerating momentum even if they haven't crossed into Strong Buy territory yet.</p>
+<h2>What Moves Commodity Prices</h2>
 
-<h2>THE PAPER TRADING ENGINE</h2>
+<div class="factor-grid">
+  <div class="factor-card">
+    <div class="fc-icon">&#9889;</div>
+    <div class="fc-title">Geopolitical Disruption</div>
+    <div class="fc-body">Wars, sanctions, and chokepoint threats \u2014 the Strait of Hormuz, the Red Sea, Russia pipeline flows \u2014 can reprice global energy markets overnight. The gap between headline risk and actual supply impact is where the real trading signal lives.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#128202;</div>
+    <div class="fc-title">Supply Decisions</div>
+    <div class="fc-body">OPEC+ production quotas, US shale rig counts, LNG export capacity, and state-owned producer behavior collectively determine how much supply enters the market. A single OPEC communiqu\u00e9 can move WTI by dollars per barrel.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#128203;</div>
+    <div class="fc-title">Inventory &amp; Government Data</div>
+    <div class="fc-body">The EIA's weekly crude and natural gas storage reports are among the most market-moving scheduled data releases in energy. A larger-than-expected draw or build in inventories can immediately reprice front-month futures.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#128181;</div>
+    <div class="fc-title">Dollar Strength</div>
+    <div class="fc-body">Commodities are priced in US dollars globally. When the dollar strengthens, commodities become more expensive in local currencies, dampening demand. When the dollar weakens, commodities reprice higher even before physical demand changes.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#127758;</div>
+    <div class="fc-title">Demand Shocks</div>
+    <div class="fc-body">China's industrial cycle, AI datacenter buildout driving power and copper demand, EV adoption curves, and emerging market growth rates are the long-cycle demand forces that underpin commodity supercycles \u2014 or break them.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#128200;</div>
+    <div class="fc-title">Capital Cycle Lag</div>
+    <div class="fc-body">Years of underinvestment in upstream energy and mining infrastructure create supply deficits that take years to correct. The longest and most profitable commodity moves often come from reading where we are in the capital cycle \u2014 not the news cycle.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#127919;</div>
+    <div class="fc-title">Speculative Positioning</div>
+    <div class="fc-body">COT (Commitment of Traders) data reveals how leveraged money is positioned in commodity futures. Extreme crowding in either direction creates the conditions for violent reversals when the narrative shifts.</div>
+  </div>
+  <div class="factor-card">
+    <div class="fc-icon">&#9889;</div>
+    <div class="fc-title">Structural Demand Shifts</div>
+    <div class="fc-body">The energy transition, nuclear renaissance, grid modernization, and defense spending cycles create decade-long tailwinds for specific commodities \u2014 uranium, copper, lithium \u2014 independent of short-term price noise.</div>
+  </div>
+</div>
 
-<p>CommodityBot runs a $5,000 paper trading portfolio — real signals, simulated money. The goal is straightforward: find out whether the data it collects actually has predictive value, or whether it's just noise with a good-looking dashboard.</p>
+<h2>What CommodityBot Does</h2>
 
-<p>The engine runs three times per day during market hours — 9:45 AM, 12:00 PM, and 3:30 PM ET. At each window it looks for equities crossing into Strong Buy territory or showing strong accelerating momentum, then passes those candidates to Claude Sonnet for a final judgment call. Sonnet reviews the full signal picture — score history, news context, EIA data, any recent SEC filings, and the current portfolio — and decides whether to open a position and how much to size it.</p>
+<p>CommodityBot is a <strong>dynamic AI-powered intelligence system</strong> built to aggregate, synthesize, and surface the signals that move commodity markets. It runs continuously \u2014 pulling fresh data every hour across hundreds of sources \u2014 and applies a layered analysis pipeline to convert raw information into actionable market intelligence.</p>
 
-<p>Positions are settled at end-of-day closing prices. Exits are signal-driven: a position closes when the score deteriorates toward neutral, or when Sonnet determines the thesis has broken down. If a stronger opportunity arrives when all five slots are full, the weakest existing position can be displaced.</p>
+<p>The system currently tracks commodity equities across oil &amp; gas E&amp;P, midstream, uranium, gold miners, silver miners, copper, and lithium. It monitors spot commodity prices for WTI crude, Brent crude, natural gas, gold, silver, and copper in real time. Every tracked equity receives a composite signal score updated hourly \u2014 blending news sentiment, price momentum, and earnings transcript analysis into a single directional read.</p>
 
-<p>The portfolio page tracks open positions, unrealised P&L, and the full closed trade history with win rate over time.</p>
+<div class="source-grid">
+  <div class="source-card">
+    <div class="sc-name">Equity News &amp; Sentiment</div>
+    <div class="sc-desc">Hourly news feed across all tracked tickers, scored and weighted by source credibility and recency</div>
+  </div>
+  <div class="source-card">
+    <div class="sc-name">Government Reports</div>
+    <div class="sc-desc">EIA weekly crude and natural gas storage data ingested on release day and factored into the intelligence pipeline</div>
+  </div>
+  <div class="source-card">
+    <div class="sc-name">SEC Filings</div>
+    <div class="sc-desc">Material corporate events \u2014 8-Ks, earnings releases, insider activity \u2014 monitored in real time across all tracked companies</div>
+  </div>
+  <div class="source-card">
+    <div class="sc-name">Video &amp; Podcast Intelligence</div>
+    <div class="sc-desc">Curated analyst interviews, institutional research channels, and macro voices \u2014 transcribed and analyzed for signal</div>
+  </div>
+  <div class="source-card">
+    <div class="sc-name">Geopolitical Monitoring</div>
+    <div class="sc-desc">Daily AI-generated briefs mapping global events to their specific commodity price implications</div>
+  </div>
+  <div class="source-card">
+    <div class="sc-name">Commodity Price Feeds</div>
+    <div class="sc-desc">Spot prices for seven commodities updated every 30 minutes, tracked with week-over-week context and spread analysis</div>
+  </div>
+</div>
 
-<h2>THE REPORTS</h2>
+<h2>The Intelligence Layer</h2>
 
-<p>Every morning at 6:15 AM PST, CommodityBot publishes a morning digest — a narrative summary of overnight developments, top-ranked equities, and anything notable from EIA or SEC filings. An evening brief follows at 5:30 PM, and a weekly wrap publishes every Friday evening synthesising the week's themes.</p>
+<p>Raw data collection is table stakes. What CommodityBot adds is a two-stage AI synthesis pipeline \u2014 a fast Haiku model for initial classification, escalating to Claude Sonnet for the deeper analysis that ends up in the morning report, evening brief, and weekly wrap. The reports are written the way a thoughtful analyst would write them: identifying what is actually moving, what the contradictions are, and what deserves attention before it becomes consensus.</p>
 
-<p>All three reports are written by Claude Sonnet using everything the system collected that day. The goal is something closer to a thoughtful analyst note than a data dump.</p>
+<p>The nightly scanner runs a technical pass across the full equity universe \u2014 computing 30/60/90 day performance, 52-week positioning, volatility, sentiment velocity, and relative strength against Sprott benchmark ETFs. The paper trading engine runs three windows per market day, using the same signal stack to make autonomous position decisions and test whether the data has real predictive value.</p>
+
+<h2>Under Continuous Development</h2>
+
+<div class="dev-banner">
+  <div class="dev-dot"></div>
+  <div class="dev-text">
+    <strong>CommodityBot is actively being built.</strong> New data sources, signal types, commodities, and analytical capabilities are added continuously. The system you see today is more capable than it was last month, and less capable than it will be next month. The goal is to keep expanding the coverage and sharpening the intelligence until it becomes the most useful commodity market tool available to individual investors and traders \u2014 built by someone who uses it themselves, tuned for the signals that actually matter.
+  </div>
+</div>
+
+<div class="disclaimer">
+  RESEARCH &amp; EDUCATIONAL PURPOSES ONLY. Nothing on this site constitutes financial advice, investment recommendations, or an offer to buy or sell any security or commodity. Commodity markets are highly volatile. Past signals do not guarantee future results. Always conduct your own due diligence before making investment decisions.
+</div>
 
 </div></body></html>"""), mimetype="text/html")
-
-
 
 
 @app.route("/data-health")
