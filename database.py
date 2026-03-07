@@ -815,11 +815,11 @@ def get_open_positions(include_pending: bool = False) -> list:
 
 
 def close_position(position_id: int, reason: str, closed_at: str):
-    """Mark position as pending_close — EOD settlement fills the price."""
+    """Finalize a closed position — sets exit reason and closed timestamp."""
     with get_conn() as conn:
         conn.execute("""
             UPDATE paper_positions
-            SET status = 'pending_close', exit_reason = ?, closed_at = ?
+            SET status = 'closed', exit_reason = ?, closed_at = ?  # ← was 'pending_close'
             WHERE id = ?
         """, (reason, closed_at, position_id))
 
