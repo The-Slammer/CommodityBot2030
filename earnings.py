@@ -2,10 +2,16 @@
 earnings.py — Earnings calendar monitoring and transcript pulling.
 
 Flow:
-  1. Daily check: fetch EARNINGS_CALENDAR for all tracked tickers
+  1. Daily check: fetch EARNINGS_CALENDAR for all tracked tickers via AV
   2. Flag any ticker with earnings within 48 hours as 'earnings_watch'
   3. After market close on earnings day: poll for transcript (retry hourly)
   4. On transcript arrival: summarize via LLM, store, boost sentiment weight
+
+NOTE ON AV ENTITLEMENT:
+  EARNINGS_CALENDAR    — available on all AV plans (CSV response)
+  EARNINGS_CALL_TRANSCRIPT — requires AV premium endpoint
+  If transcripts are consistently returning None, check AV plan entitlement.
+  The /diag/earnings endpoint in web.py surfaces what's in the DB.
 """
 
 import json
@@ -32,9 +38,12 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 def check_earnings_calendar(tickers: list[str]):
     """
-    Fetch upcoming earnings for all tracked tickers.
+    Fetch upcoming earnings for all tracked tickers via AV EARNINGS_CALENDAR.
     Flag any within 48 hours as earnings_watch in DB.
-    Called once daily at startup of morning digest cycle.
+    Called once daily before morning digest.
+
+    AV returns CSV. If response is empty or malformed, logs loudly rather
+    than silently returning — callers should see this in Railway logs.
     """
     logger.info("Checking earnings calendar for %d tickers", len(tickers))
     try:
@@ -45,14 +54,24 @@ def check_earnings_calendar(tickers: list[str]):
         }, timeout=15)
         r.raise_for_status()
 
-        # AV returns CSV for this endpoint
+        # AV rate limit or info message comes back as JSON even on CSV endpoint
+        if r.headers.get("Content-Type", "").startswith("application/json"):
+            data = r.json()
+            note = data.get("Note") or data.get("Information") or str(data)
+            logger.error("EARNINGS_CALENDAR returned JSON instead of CSV — AV limit or entitlement issue: %s", note)
+            return
+
         lines = r.text.strip().split("\n")
         if len(lines) < 2:
+            logger.warning("EARNINGS_CALENDAR returned %d lines — may be empty or rate-limited. Raw: %s",
+                           len(lines), r.text[:200])
             return
 
         headers = lines[0].split(",")
         now = datetime.utcnow()
         watch_window = now + timedelta(hours=48)
+        matched = 0
+        watch_count = 0
 
         for line in lines[1:]:
             parts = line.split(",")
@@ -63,6 +82,7 @@ def check_earnings_calendar(tickers: list[str]):
                 ticker = row.get("symbol", "").strip()
                 if ticker not in tickers:
                     continue
+                matched += 1
                 report_date_str = row.get("reportDate", "").strip()
                 if not report_date_str:
                     continue
@@ -80,16 +100,38 @@ def check_earnings_calendar(tickers: list[str]):
                 })
 
                 if in_watch:
-                    logger.info("EARNINGS WATCH: %s reports on %s", ticker, report_date_str)
+                    watch_count += 1
+                    logger.info("EARNINGS WATCH: %s reports on %s (%d days)",
+                                ticker, report_date_str, days_until)
+
             except Exception as e:
-                logger.debug("Earnings calendar parse error: %s", e)
+                logger.debug("Earnings calendar parse error on line '%s': %s", line[:80], e)
+
+        logger.info(
+            "Earnings calendar complete — %d total lines, %d matched tracked tickers, %d in 48h watch",
+            len(lines) - 1, matched, watch_count
+        )
+
+        if matched == 0:
+            logger.warning(
+                "EARNINGS_CALENDAR returned 0 matches for %d tracked tickers — "
+                "verify AV key, tickers in config, and that the endpoint returned data",
+                len(tickers)
+            )
 
     except Exception as e:
         logger.error("Earnings calendar fetch failed: %s", e)
 
 
 def _fetch_transcript(ticker: str, fiscal_quarter: str) -> str | None:
-    """Fetch earnings call transcript from AV. Returns raw text or None."""
+    """
+    Fetch earnings call transcript from AV EARNINGS_CALL_TRANSCRIPT.
+    Returns raw text or None.
+
+    NOTE: This endpoint requires AV premium entitlement. If it consistently
+    returns None, the plan does not include transcript access. Check /diag/av
+    or contact AV support to confirm entitlement.
+    """
     try:
         r = requests.get(AV_BASE, params={
             "function": "EARNINGS_CALL_TRANSCRIPT",
@@ -99,12 +141,32 @@ def _fetch_transcript(ticker: str, fiscal_quarter: str) -> str | None:
         }, timeout=30)
         r.raise_for_status()
         data = r.json()
+
+        # Check for rate limit or entitlement message
+        note = data.get("Note") or data.get("Information")
+        if note:
+            logger.warning(
+                "EARNINGS_CALL_TRANSCRIPT for %s returned API message (likely entitlement/rate limit): %s",
+                ticker, note
+            )
+            return None
+
         transcript = data.get("transcript", "")
         if transcript and len(transcript) > 500:
+            logger.info("Transcript fetched for %s %s (%d chars)", ticker, fiscal_quarter, len(transcript))
             return transcript
+
+        # Log what came back so we can diagnose
+        keys = list(data.keys())
+        logger.warning(
+            "EARNINGS_CALL_TRANSCRIPT for %s %s returned no usable transcript. "
+            "Response keys: %s | transcript length: %d",
+            ticker, fiscal_quarter, keys, len(transcript)
+        )
         return None
+
     except Exception as e:
-        logger.warning("Transcript fetch failed for %s: %s", ticker, e)
+        logger.warning("Transcript fetch failed for %s %s: %s", ticker, fiscal_quarter, e)
         return None
 
 
@@ -143,7 +205,6 @@ def _summarize_transcript(ticker: str, transcript: str) -> tuple[str, float]:
         r.raise_for_status()
         text = r.json()["content"][0]["text"]
 
-        # Extract sentiment score
         score = 0.0
         for line in text.split("\n"):
             if "SENTIMENT_SCORE:" in line:
@@ -164,10 +225,16 @@ def _summarize_transcript(ticker: str, transcript: str) -> tuple[str, float]:
 def poll_transcripts_for_watch_list():
     """
     Check all earnings_watch tickers and attempt transcript pull.
-    Called hourly after 4 PM UTC (market close). Retries until transcript arrives.
+    Called after market close on weekdays. Retries until transcript arrives.
     """
     from database import get_earnings_watch_rows
     watch_rows = get_earnings_watch_rows()
+
+    if not watch_rows:
+        logger.info("No tickers in earnings watch — skipping transcript poll")
+        return
+
+    logger.info("Polling transcripts for %d watch-list tickers", len(watch_rows))
 
     for row in watch_rows:
         ticker = row["ticker"]
@@ -178,6 +245,7 @@ def poll_transcripts_for_watch_list():
         try:
             rdate = datetime.strptime(report_date, "%Y-%m-%d")
             if datetime.utcnow() < rdate:
+                logger.debug("Skipping %s — report date %s is in the future", ticker, report_date)
                 continue
         except Exception:
             continue
@@ -187,11 +255,12 @@ def poll_transcripts_for_watch_list():
             logger.debug("Transcript already stored: %s %s", ticker, fiscal_quarter)
             continue
 
-        logger.info("Attempting transcript pull: %s %s", ticker, fiscal_quarter)
+        logger.info("Attempting transcript pull: %s %s (report date: %s)",
+                    ticker, fiscal_quarter, report_date)
         transcript = _fetch_transcript(ticker, fiscal_quarter)
 
         if not transcript:
-            logger.info("Transcript not yet available: %s", ticker)
+            logger.info("Transcript not yet available for %s — will retry next window", ticker)
             continue
 
         summary, sentiment_score = _summarize_transcript(ticker, transcript)
@@ -200,7 +269,7 @@ def poll_transcripts_for_watch_list():
             "ticker": ticker,
             "fiscal_quarter": fiscal_quarter,
             "report_date": report_date,
-            "transcript_raw": transcript[:50000],  # cap storage
+            "transcript_raw": transcript[:50000],
             "summary": summary,
             "sentiment_score": sentiment_score,
             "generated_at": datetime.utcnow().isoformat(),
@@ -211,3 +280,47 @@ def poll_transcripts_for_watch_list():
             ticker, fiscal_quarter, sentiment_score
         )
         time.sleep(2.0)  # AV rate limit pause between tickers
+
+
+def get_earnings_diagnostics() -> dict:
+    """
+    Returns a diagnostic snapshot of earnings pipeline health.
+    Called by /diag/earnings in web.py.
+    """
+    from database import get_earnings_watch_rows, get_recent_transcripts, get_conn
+    import os as _os
+
+    watch_rows  = get_earnings_watch_rows()
+    transcripts = get_recent_transcripts(days=14)
+
+    # Count all earnings_watch rows regardless of in_watch flag
+    try:
+        from database import get_conn
+        with get_conn() as conn:
+            all_watch = conn.execute(
+                "SELECT ticker, report_date, days_until, in_watch, fiscal_quarter, updated_at "
+                "FROM earnings_watch ORDER BY report_date ASC LIMIT 20"
+            ).fetchall()
+            all_watch = [dict(r) for r in all_watch]
+    except Exception:
+        all_watch = []
+
+    return {
+        "av_key_set":          bool(ALPHAVANTAGE_API_KEY),
+        "anthropic_key_set":   bool(ANTHROPIC_API_KEY),
+        "finnhub_key_set":     bool(os.getenv("FINNHUB_API_KEY", "")),
+        "watch_list_active":   len(watch_rows),
+        "all_watch_rows":      all_watch,
+        "transcripts_14d":     len(transcripts),
+        "recent_transcripts":  [
+            {
+                "ticker":          t["ticker"],
+                "fiscal_quarter":  t["fiscal_quarter"],
+                "report_date":     t["report_date"],
+                "sentiment_score": t["sentiment_score"],
+                "generated_at":    t["generated_at"],
+            }
+            for t in transcripts[:10]
+        ],
+        "checked_at": datetime.utcnow().isoformat() + "Z",
+    }
