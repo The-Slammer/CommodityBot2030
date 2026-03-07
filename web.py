@@ -647,11 +647,6 @@ pre{{color:#9a9490;font-size:0.68rem;line-height:1.6;margin:0}}
     html += "</body></html>"
     return Response(html, mimetype="text/html")
 
-@app.route("/diag/av")
-def diag_av():
-    # ... existing av diagnostic code ...
-    return Response(html, mimetype="text/html")   # ← last line of existing route
-
 @app.route("/diag/earnings")                      # ← paste starts here
 def diag_earnings():
     """Diagnostic endpoint — surfaces earnings pipeline health."""
