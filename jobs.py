@@ -13,13 +13,13 @@ Schedule (UTC):
   YouTube              — every 6 hours
   Style reference      — Sundays 18:00 UTC (Tim Dillon)
   Sentiment            — after each AV market group completes
-  Earnings check       — daily 13:00 UTC (5 AM PST)
-  Morning digest       — daily 14:15 UTC (6:15 AM PST)
+  Earnings check       — daily 13:00 UTC (5 AM PST), mon-fri
+  Morning digest       — daily 14:15 UTC (6:15 AM PST), mon-fri
+  Evening digest       — daily 01:30 UTC (5:30 PM PST), mon-fri
   EIA Crude            — Wednesdays 15:35 UTC
   EIA Nat Gas          — Thursdays 15:35 UTC
   EIA Drilling         — 16th of month 16:00 UTC
   Transcript poll      — daily 21:00 + 23:00 UTC
-  Evening digest       — daily 01:30 UTC (5:30 PM PST)
   Weekly wrap          — Saturdays 01:30 UTC (Friday 5:30 PM PST)
 """
 
@@ -250,7 +250,6 @@ def start_scheduler():
     scheduler.add_job(run_sec_job, CronTrigger(minute=5), id="sec_poll", misfire_grace_time=120)
 
     # AV market groups — staggered every 10-15 min to avoid rate limit bursts
-    # Each group runs independently on a 60-min cycle at its offset
     scheduler.add_job(poll_commodity_prices, IntervalTrigger(minutes=30), id="commodity_prices", misfire_grace_time=120)
     scheduler.add_job(generate_geopolitical_brief, CronTrigger(hour=5, minute=0), id="geo_brief", misfire_grace_time=300)
     scheduler.add_job(run_av_oil_gas,         CronTrigger(minute=0),  id="av_oil_gas",         misfire_grace_time=120)
@@ -262,34 +261,32 @@ def start_scheduler():
     scheduler.add_job(run_youtube_job, IntervalTrigger(hours=6), id="yt_poll", misfire_grace_time=300)
     scheduler.add_job(run_style_reference_job, CronTrigger(day_of_week="sun", hour=18, minute=0), id="style_ref_poll", misfire_grace_time=3600)
 
-    # Daily reports (PST)
-    scheduler.add_job(run_morning_digest_job, CronTrigger(hour=14, minute=15, timezone="UTC"), id="morning_digest", misfire_grace_time=300)
-    scheduler.add_job(run_evening_digest_job, CronTrigger(hour=1, minute=30, timezone="UTC"), id="evening_digest", misfire_grace_time=300)
+    # Daily reports — weekdays only (mon-fri)
+    scheduler.add_job(run_morning_digest_job, CronTrigger(hour=14, minute=15, day_of_week="mon-fri", timezone="UTC"), id="morning_digest", misfire_grace_time=300)
+    scheduler.add_job(run_evening_digest_job, CronTrigger(hour=1,  minute=30, day_of_week="mon-fri", timezone="UTC"), id="evening_digest", misfire_grace_time=300)
 
     # Weekly wrap — Friday 5:30 PM PST = Saturday 01:30 UTC
     scheduler.add_job(run_weekly_digest_job, CronTrigger(day_of_week="sat", hour=1, minute=30, timezone="UTC"), id="weekly_digest", misfire_grace_time=300)
 
     # EIA release schedules (EST = UTC-5)
-    scheduler.add_job(run_eia_crude_job, CronTrigger(day_of_week="wed", hour=15, minute=35, timezone="UTC"), id="eia_crude", misfire_grace_time=300)
-    scheduler.add_job(run_eia_natgas_job, CronTrigger(day_of_week="thu", hour=15, minute=35, timezone="UTC"), id="eia_natgas", misfire_grace_time=300)
-    scheduler.add_job(run_eia_drilling_job, CronTrigger(day=16, hour=16, minute=0, timezone="UTC"), id="eia_drilling", misfire_grace_time=600)
+    scheduler.add_job(run_eia_crude_job,    CronTrigger(day_of_week="wed", hour=15, minute=35, timezone="UTC"), id="eia_crude",    misfire_grace_time=300)
+    scheduler.add_job(run_eia_natgas_job,   CronTrigger(day_of_week="thu", hour=15, minute=35, timezone="UTC"), id="eia_natgas",   misfire_grace_time=300)
+    scheduler.add_job(run_eia_drilling_job, CronTrigger(day=16,            hour=16, minute=0,  timezone="UTC"), id="eia_drilling", misfire_grace_time=600)
 
-    # Paper trading windows (ET times converted to UTC)
-    # 09:45 ET = 14:45 UTC  |  12:15 ET = 17:15 UTC (shifted from :00 to avoid AV oil_gas collision)
-    # 15:30 ET = 20:30 UTC  |  EOD price update = 21:15 UTC (after 4 PM ET close)
-    scheduler.add_job(run_trading_morning,  CronTrigger(hour=14, minute=45, day_of_week="mon-fri", timezone="UTC"), id="trade_morning",  misfire_grace_time=120)
-    scheduler.add_job(run_trading_midday,   CronTrigger(hour=17, minute=15, day_of_week="mon-fri", timezone="UTC"), id="trade_midday",   misfire_grace_time=120)
-    scheduler.add_job(run_trading_preclose, CronTrigger(hour=20, minute=30, day_of_week="mon-fri", timezone="UTC"), id="trade_preclose", misfire_grace_time=120)
+    # Paper trading windows (ET times converted to UTC) — weekdays only
+    scheduler.add_job(run_trading_morning,    CronTrigger(hour=14, minute=45, day_of_week="mon-fri", timezone="UTC"), id="trade_morning",  misfire_grace_time=120)
+    scheduler.add_job(run_trading_midday,     CronTrigger(hour=17, minute=15, day_of_week="mon-fri", timezone="UTC"), id="trade_midday",   misfire_grace_time=120)
+    scheduler.add_job(run_trading_preclose,   CronTrigger(hour=20, minute=30, day_of_week="mon-fri", timezone="UTC"), id="trade_preclose", misfire_grace_time=120)
     scheduler.add_job(run_eod_settlement_job, CronTrigger(hour=21, minute=15, day_of_week="mon-fri", timezone="UTC"), id="eod_settlement", misfire_grace_time=300)
 
-    # Earnings transcript polling (after market close)
-    scheduler.add_job(run_transcript_poll_job, CronTrigger(hour=21, minute=0, timezone="UTC"), id="transcript_poll", misfire_grace_time=300)
-    scheduler.add_job(run_transcript_poll_job, CronTrigger(hour=23, minute=0, timezone="UTC"), id="transcript_poll_2", misfire_grace_time=300)
+    # Earnings transcript polling (after market close) — weekdays only
+    scheduler.add_job(run_transcript_poll_job, CronTrigger(hour=21, minute=0,  day_of_week="mon-fri", timezone="UTC"), id="transcript_poll",   misfire_grace_time=300)
+    scheduler.add_job(run_transcript_poll_job, CronTrigger(hour=23, minute=0,  day_of_week="mon-fri", timezone="UTC"), id="transcript_poll_2", misfire_grace_time=300)
 
-    # Earnings calendar check (morning, before digest)
+    # Earnings calendar check (morning, before digest) — weekdays only
     scheduler.add_job(
         lambda: check_earnings_calendar(EARNINGS_TRACKED_TICKERS),
-        CronTrigger(hour=13, minute=0, timezone="UTC"),
+        CronTrigger(hour=13, minute=0, day_of_week="mon-fri", timezone="UTC"),
         id="earnings_check",
         misfire_grace_time=300
     )
