@@ -316,18 +316,22 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
     """
     Sonnet LLM call with web_search tool enabled.
 
-    Web search allows Sonnet to pull live spot prices and breaking headlines
-    at generation time — fills gaps when AV data is stale or thin.
+    Sonnet receives three explicit search tasks in priority order:
+      1. Price verification — mandatory every run, corrects stale AV data
+      2. Overnight macro context — dollar, Fed, China demand, OPEC
+      3. Commodity-specific catalyst — conditional on sentiment divergence,
+         includes geopolitical angle (disruptions, sanctions, chokepoints)
 
-    Price context is conditionally built based on available data points:
-    - 7+ points: full week-over-week framing
-    - 2-6 points: recent-move framing only, no W/W claim
-    - 1 point: spot price only, no directional claim
+    Price context is conditionally built based on available data points to
+    prevent the model from fabricating week-over-week claims it can't support.
     """
     if not ANTHROPIC_API_KEY:
         return "Narrative generation unavailable — ANTHROPIC_API_KEY not set."
 
+    # Build per-commodity context blocks with data quality signals
     context = []
+    divergence_flags = []
+
     for key, config in COMMODITIES.items():
         ps = price_sentiments.get(key, {})
         ns = news_sentiments.get(key, {})
@@ -335,19 +339,22 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         current = ps.get("current")
         change_pct = ps.get("change_pct")
 
-        # Build price line based on what we actually have
+        # Price line — only claim what the data supports
         if data_points >= 7 and change_pct is not None:
-            price_line = f"${current} | 7-day change: {change_pct:+.2f}% | Price sentiment: {ps.get('label')}"
+            price_line = (
+                f"${current} | 7-day change: {change_pct:+.2f}% "
+                f"| Price sentiment: {ps.get('label')}"
+            )
         elif data_points >= 2 and change_pct is not None:
             price_line = (
                 f"${current} | {data_points}-day change: {change_pct:+.2f}% "
                 f"| Price sentiment: {ps.get('label')} "
-                f"(NOTE: only {data_points} days of price history available — do not reference week-over-week)"
+                f"[NOTE: only {data_points} days of history — do not reference week-over-week]"
             )
         elif current is not None:
             price_line = (
                 f"${current} | Price sentiment: {ps.get('label')} "
-                f"(NOTE: insufficient price history — report spot price only, no directional claims)"
+                f"[NOTE: single data point — report spot price only, no directional claims]"
             )
         else:
             price_line = "Price data unavailable — use web search to find current price"
@@ -358,6 +365,24 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             f"  News sentiment: {ns.get('label')} ({ns.get('article_count', 0)} articles)\n"
             f"  Top headlines: {'; '.join(h['title'] for h in ns.get('top_headlines', []))}"
         )
+
+        # Flag divergences for the conditional search task
+        price_score = ps.get("score", 0)
+        news_score = ns.get("score", 0)
+        if ns.get("article_count", 0) > 0 and abs(price_score - news_score) > 0.4:
+            direction = (
+                "price bearish / news bullish" if news_score > price_score
+                else "price bullish / news bearish"
+            )
+            divergence_flags.append(f"{config['label']} ({direction})")
+
+    divergence_note = (
+        "DIVERGENCES DETECTED — run commodity-specific catalyst search for: "
+        + ", ".join(divergence_flags)
+        if divergence_flags
+        else "No major sentiment divergences detected — skip commodity-specific catalyst search "
+             "unless a headline above suggests an obvious unexplained move"
+    )
 
     # EIA context
     eia_context = ""
@@ -375,7 +400,7 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             label_str = ", ".join(labels) if labels else f.get("title", "")[:60]
             sec_context += f"\n  {f.get('ticker','')} {f.get('filing_type','')}: {label_str} ({f.get('filed_at','')})"
 
-    # Geopolitical context
+    # Geopolitical context from overnight brief
     geo_context = ""
     try:
         from database import get_latest_geopolitical_brief
@@ -392,25 +417,46 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
 
     prompt = (
         "You are a sharp, opinionated energy markets analyst writing the Morning Market Breakdown — "
-        "a no-BS morning briefing for serious energy investors. "
-        "You have web search available — use it to verify or supplement any price data marked as "
-        "unavailable or insufficient, and to check for any major breaking energy market developments "
-        "from the last 12 hours that are not reflected in the headlines below. "
-        "Write a concise 3-paragraph narrative (150-200 words total) covering: "
-        "(1) what the price action is telling us across oil, natural gas, and uranium, "
-        "(2) how the news sentiment aligns or diverges from price action — flag any notable divergences, "
-        "(3) the one thing readers should be watching today. "
-        "Be direct, use precise language, no fluff. Don't start with 'Good morning'. "
-        "Do not use bullet points. Write in flowing paragraphs. "
-        "Only reference week-over-week performance if 7-day price data is explicitly available above. "
-        "If price history is limited, reference the spot price and current direction only. "
-        "If geopolitical context is provided, weave it into the price action narrative — "
-        "explain how geopolitical pressure is amplifying or contradicting what prices are doing. "
-        "Do not list geopolitical events separately.\n\n"
-        "Market data:\n" + "\n\n".join(context) +
-        ("\n\nEIA Inventory Data released today:" + eia_context if eia_context else "") +
-        ("\n\nSEC Material Filings (last 36h):" + sec_context if sec_context else "") +
-        ("\n\nGEOPOLITICAL CONTEXT:\n" + geo_context if geo_context else "")
+        "a no-BS morning briefing for serious energy investors.\n\n"
+
+        "BEFORE WRITING, complete these web searches in order:\n\n"
+
+        "SEARCH TASK 1 — PRICE VERIFICATION (mandatory, every run):\n"
+        "Search current spot prices for WTI crude front month, natural gas front month, and URNM. "
+        "Compare against the AV prices in the market data below. "
+        "If live prices differ materially from what's below, use the live price in your narrative "
+        "and note that internal data may be delayed.\n\n"
+
+        "SEARCH TASK 2 — OVERNIGHT MACRO CONTEXT (mandatory, every run):\n"
+        "Search for: US dollar index direction today, any Fed speaker commentary in the last 12 hours, "
+        "China industrial demand or PMI signals, OPEC+ production news. "
+        "Weave anything market-moving into the narrative — skip anything routine.\n\n"
+
+        "SEARCH TASK 3 — COMMODITY CATALYST (conditional):\n"
+        f"{divergence_note}\n"
+        "For each flagged commodity, search for the specific catalyst driving the divergence. "
+        "Extend the search to geopolitical developments that could explain the move: "
+        "supply disruptions near production regions, new sanctions, conflict escalation, "
+        "chokepoint threats (Strait of Hormuz, Red Sea, Russian pipeline flows, Kazakh export routes). "
+        "Also check whether any geopolitical context from the overnight brief below has developed "
+        "further overnight. Do not search for general energy news — the headlines below cover that.\n\n"
+
+        "After completing searches, write a concise 3-paragraph narrative (150-200 words total):\n"
+        "  Paragraph 1: What the price action is telling us across oil, natural gas, and uranium. "
+        "Use verified live prices if they differ from the data below.\n"
+        "  Paragraph 2: How news sentiment aligns or diverges from price action. "
+        "Name the specific catalyst if found. Weave in geopolitical pressure that is amplifying "
+        "or contradicting the move — do not list geopolitical events separately.\n"
+        "  Paragraph 3: The one thing readers should be watching today and why.\n\n"
+
+        "Style: direct, precise, no fluff. No 'Good morning'. Flowing paragraphs only, no bullets. "
+        "Only reference week-over-week performance if 7-day price data is explicitly marked available below. "
+        "If price history is limited, reference spot price and current direction only.\n\n"
+
+        "MARKET DATA:\n" + "\n\n".join(context) +
+        ("\n\nEIA INVENTORY DATA (released today):" + eia_context if eia_context else "") +
+        ("\n\nSEC MATERIAL FILINGS (last 36h):" + sec_context if sec_context else "") +
+        ("\n\nGEOPOLITICAL CONTEXT (from overnight brief):\n" + geo_context if geo_context else "")
     )
 
     try:
@@ -437,7 +483,7 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         r.raise_for_status()
         response_data = r.json()
 
-        # Extract text blocks — Sonnet may return tool_use + text blocks interleaved
+        # Extract text blocks — response may contain tool_use and tool_result blocks interleaved
         text_blocks = [
             block["text"]
             for block in response_data.get("content", [])
@@ -445,7 +491,7 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         ]
         narrative = "\n\n".join(text_blocks).strip()
         if not narrative:
-            logger.warning("Sonnet returned no text blocks — check tool use response")
+            logger.warning("Sonnet returned no text blocks — check tool use response structure")
             return "Narrative generation produced no output — check logs."
         return narrative
 
@@ -569,7 +615,6 @@ def render_html(
             min-height: 100vh;
         }}
 
-        /* ── Header ── */
         header {{
             border-bottom: 1px solid var(--border);
             padding: 0 clamp(1.5rem, 5vw, 4rem);
@@ -649,14 +694,12 @@ def render_html(
             border: 1px solid var(--border-2);
         }}
 
-        /* ── Main layout ── */
         main {{
             max-width: 1200px;
             margin: 0 auto;
             padding: 3rem clamp(1.5rem, 5vw, 4rem);
         }}
 
-        /* ── Section labels ── */
         .section-label {{
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.6rem;
@@ -676,7 +719,6 @@ def render_html(
             background: var(--border);
         }}
 
-        /* ── Analyst note ── */
         .analyst-note {{
             margin-bottom: 3.5rem;
             padding: 2rem 2.5rem;
@@ -717,7 +759,6 @@ def render_html(
             text-transform: uppercase;
         }}
 
-        /* ── Commodity grid ── */
         .commodity-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
