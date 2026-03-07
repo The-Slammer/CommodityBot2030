@@ -1,11 +1,11 @@
 """
-digest.py — Generates the Morning Market <em>Breakdown</em>.
+digest.py — Generates the Morning Market Breakdown.
 
 Flow:
-  1. Fetch 7-day 1h price data for WTI, Natural Gas, URNM (uranium proxy)
+  1. Fetch 7-day price data for WTI, Natural Gas, URNM (uranium proxy)
   2. Calculate price sentiment per commodity
   3. Pull last 24hrs of AlphaVantage news from DB, aggregate news sentiment
-  4. One LLM call → narrative synthesis
+  4. One LLM call (Sonnet + web_search tool) → narrative synthesis
   5. Render HTML and store in digests table
 """
 
@@ -81,7 +81,6 @@ def _fetch_commodity_price_series(av_function: str) -> list[dict]:
     if "Note" in data or "Information" in data:
         raise RuntimeError(f"AV API limit hit for {av_function}")
     raw = data.get("data", [])
-    # Return last 7 days
     return raw[:7]
 
 
@@ -109,12 +108,9 @@ def fetch_price_data() -> dict:
     """
     Primary: read from commodity_prices DB table (populated every 30 min by commodity_prices.py).
     Fallback: live AV call if DB has no data for a symbol.
-    This decouples digest generation from AV availability — prices are always present
-    even if AV is down at 6:15 AM.
     """
     from database import get_commodity_price_series, get_latest_commodity_price
 
-    # Map our commodity keys to DB symbols
     SYMBOL_MAP = {
         "oil": "CRUDE_WTI",
         "natural_gas": "NATURAL_GAS",
@@ -125,14 +121,11 @@ def fetch_price_data() -> dict:
     for key, config in COMMODITIES.items():
         symbol = SYMBOL_MAP.get(key)
 
-        # Try DB first
         if symbol:
             series = get_commodity_price_series(symbol, days=7)
             if series:
                 prices[key] = series
-                # Warn if data is stale (over 2 hours old)
                 try:
-                    from datetime import datetime, timedelta
                     latest_ts = series[0].get("date") or ""
                     if len(latest_ts) > 10:
                         age = datetime.utcnow() - datetime.fromisoformat(latest_ts[:19])
@@ -146,7 +139,6 @@ def fetch_price_data() -> dict:
                 logger.info("Price data for %s loaded from DB (%d points)", key, len(series))
                 continue
 
-        # DB empty — fall back to live AV call
         logger.warning("No DB price data for %s — falling back to live AV fetch", key)
         try:
             if config["av_function"]:
@@ -157,7 +149,6 @@ def fetch_price_data() -> dict:
             logger.info("Live AV fallback succeeded for %s (%d points)", key, len(prices[key]))
         except Exception as e:
             logger.error("Live AV fallback also failed for %s: %s", key, e)
-            # Last resort: single latest price point from DB to avoid $None in digest
             last = get_latest_commodity_price(symbol) if symbol else None
             if last:
                 prices[key] = [{"date": last["polled_at"][:10], "value": last["price"]}]
@@ -190,17 +181,20 @@ def _score_to_label(score: float) -> tuple[str, str]:
 
 def calculate_price_sentiment(series: list[dict]) -> dict:
     """
-    Given a 7-day daily price series (newest first), compute:
-      - current price
-      - 7-day change %
-      - trend direction (simple: newest vs oldest)
-      - normalized sentiment score -1 to 1
+    Given a daily price series (newest first), compute sentiment.
+    Returns data_points count so the narrative prompt knows what it's working with.
     """
     if not series or len(series) < 2:
         return {
-            "current": None, "change_pct": None,
-            "score": 0.0, "label": "Insufficient Data", "color": "#94a3b8",
-            "high": None, "low": None, "series": []
+            "current": series[0]["value"] if series else None,
+            "change_pct": None,
+            "score": 0.0,
+            "label": "Insufficient Data",
+            "color": "#94a3b8",
+            "high": series[0]["value"] if series else None,
+            "low": series[0]["value"] if series else None,
+            "series": series or [],
+            "data_points": len(series),
         }
 
     values = [p["value"] for p in series]
@@ -210,15 +204,10 @@ def calculate_price_sentiment(series: list[dict]) -> dict:
     low = min(values)
     rng = high - low if high != low else 1
 
-    # Trend: percent change over period
     change_pct = ((current - oldest) / oldest) * 100
-
-    # Momentum: where is current price in the 7-day range (0=low, 1=high)
     position = (current - low) / rng
-
-    # Score: blend of trend direction and range position
-    trend_score = max(-1.0, min(1.0, change_pct / 10))  # normalize ~10% = max
-    position_score = (position * 2) - 1                  # map 0-1 → -1 to 1
+    trend_score = max(-1.0, min(1.0, change_pct / 10))
+    position_score = (position * 2) - 1
     score = (trend_score * 0.6) + (position_score * 0.4)
     score = max(-1.0, min(1.0, score))
 
@@ -233,6 +222,7 @@ def calculate_price_sentiment(series: list[dict]) -> dict:
         "high": round(high, 2),
         "low": round(low, 2),
         "series": [{"date": p["date"], "value": p["value"]} for p in series],
+        "data_points": len(series),
     }
 
 
@@ -251,7 +241,6 @@ def aggregate_news_sentiment(items: list[dict], commodity_config: dict) -> dict:
 
     relevant = []
     for item in items:
-        # Match by topic or ticker
         item_topics = json.loads(item.get("topics", "[]"))
         item_query = item.get("query_value", "")
         matches_topic = any(t in commodity_config["news_topics"] for t in item_topics)
@@ -264,7 +253,6 @@ def aggregate_news_sentiment(items: list[dict], commodity_config: dict) -> dict:
         if score is None:
             continue
 
-        # Recency weight
         try:
             published = datetime.fromisoformat(item["published_at"]).replace(tzinfo=timezone.utc)
             age_hours = (now - published).total_seconds() / 3600
@@ -303,7 +291,6 @@ def aggregate_news_sentiment(items: list[dict], commodity_config: dict) -> dict:
 
     label, color = _score_to_label(weighted_score)
 
-    # Top 3 most impactful headlines (highest absolute score * weight)
     top = sorted(relevant, key=lambda x: abs(x["score"]) * x["weight"], reverse=True)[:3]
 
     return {
@@ -326,7 +313,17 @@ def aggregate_news_sentiment(items: list[dict], commodity_config: dict) -> dict:
 def generate_narrative(price_sentiments: dict, news_sentiments: dict,
                         price_data: dict, eia_data: list = None,
                         sec_filings: list = None) -> str:
-    """Sonnet LLM call — includes EIA inventory and SEC filing context when available."""
+    """
+    Sonnet LLM call with web_search tool enabled.
+
+    Web search allows Sonnet to pull live spot prices and breaking headlines
+    at generation time — fills gaps when AV data is stale or thin.
+
+    Price context is conditionally built based on available data points:
+    - 7+ points: full week-over-week framing
+    - 2-6 points: recent-move framing only, no W/W claim
+    - 1 point: spot price only, no directional claim
+    """
     if not ANTHROPIC_API_KEY:
         return "Narrative generation unavailable — ANTHROPIC_API_KEY not set."
 
@@ -334,21 +331,42 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
     for key, config in COMMODITIES.items():
         ps = price_sentiments.get(key, {})
         ns = news_sentiments.get(key, {})
+        data_points = ps.get("data_points", 0)
+        current = ps.get("current")
+        change_pct = ps.get("change_pct")
+
+        # Build price line based on what we actually have
+        if data_points >= 7 and change_pct is not None:
+            price_line = f"${current} | 7-day change: {change_pct:+.2f}% | Price sentiment: {ps.get('label')}"
+        elif data_points >= 2 and change_pct is not None:
+            price_line = (
+                f"${current} | {data_points}-day change: {change_pct:+.2f}% "
+                f"| Price sentiment: {ps.get('label')} "
+                f"(NOTE: only {data_points} days of price history available — do not reference week-over-week)"
+            )
+        elif current is not None:
+            price_line = (
+                f"${current} | Price sentiment: {ps.get('label')} "
+                f"(NOTE: insufficient price history — report spot price only, no directional claims)"
+            )
+        else:
+            price_line = "Price data unavailable — use web search to find current price"
+
         context.append(
             f"{config['label']}:\n"
-            f"  Price: ${ps.get('current')} | 7-day change: {ps.get('change_pct')}% "
-            f"| Price sentiment: {ps.get('label')}\n"
+            f"  Price: {price_line}\n"
             f"  News sentiment: {ns.get('label')} ({ns.get('article_count', 0)} articles)\n"
             f"  Top headlines: {'; '.join(h['title'] for h in ns.get('top_headlines', []))}"
         )
 
-    # Build supplemental context from EIA and SEC data
+    # EIA context
     eia_context = ""
     if eia_data:
         for r in eia_data:
             rtype = r.get("report_type", "").replace("_", " ").title()
             eia_context += f"\n  EIA {rtype}: {r.get('label','')} (period: {r.get('period','')})"
 
+    # SEC context
     sec_context = ""
     if sec_filings:
         import json as _json
@@ -357,6 +375,7 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             label_str = ", ".join(labels) if labels else f.get("title", "")[:60]
             sec_context += f"\n  {f.get('ticker','')} {f.get('filing_type','')}: {label_str} ({f.get('filed_at','')})"
 
+    # Geopolitical context
     geo_context = ""
     try:
         from database import get_latest_geopolitical_brief
@@ -372,14 +391,19 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
         logger.warning("Could not load geopolitical brief: %s", e)
 
     prompt = (
-        "You are a sharp, opinionated energy markets analyst writing the Morning Market <em>Breakdown</em> — "
+        "You are a sharp, opinionated energy markets analyst writing the Morning Market Breakdown — "
         "a no-BS morning briefing for serious energy investors. "
+        "You have web search available — use it to verify or supplement any price data marked as "
+        "unavailable or insufficient, and to check for any major breaking energy market developments "
+        "from the last 12 hours that are not reflected in the headlines below. "
         "Write a concise 3-paragraph narrative (150-200 words total) covering: "
         "(1) what the price action is telling us across oil, natural gas, and uranium, "
         "(2) how the news sentiment aligns or diverges from price action — flag any notable divergences, "
         "(3) the one thing readers should be watching today. "
         "Be direct, use precise language, no fluff. Don't start with 'Good morning'. "
         "Do not use bullet points. Write in flowing paragraphs. "
+        "Only reference week-over-week performance if 7-day price data is explicitly available above. "
+        "If price history is limited, reference the spot price and current direction only. "
         "If geopolitical context is provided, weave it into the price action narrative — "
         "explain how geopolitical pressure is amplifying or contradicting what prices are doing. "
         "Do not list geopolitical events separately.\n\n"
@@ -399,13 +423,32 @@ def generate_narrative(price_sentiments: dict, news_sentiments: dict,
             },
             json={
                 "model": "claude-sonnet-4-6",
-                "max_tokens": 700,
+                "max_tokens": 1500,
+                "tools": [
+                    {
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                    }
+                ],
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=30,
+            timeout=60,
         )
         r.raise_for_status()
-        return r.json()["content"][0]["text"]
+        response_data = r.json()
+
+        # Extract text blocks — Sonnet may return tool_use + text blocks interleaved
+        text_blocks = [
+            block["text"]
+            for block in response_data.get("content", [])
+            if block.get("type") == "text"
+        ]
+        narrative = "\n\n".join(text_blocks).strip()
+        if not narrative:
+            logger.warning("Sonnet returned no text blocks — check tool use response")
+            return "Narrative generation produced no output — check logs."
+        return narrative
+
     except Exception as e:
         logger.error("LLM narrative failed: %s", e)
         return "Narrative generation failed — check logs."
@@ -447,6 +490,7 @@ def render_html(
         change_pct = ps.get("change_pct")
         change_class = "positive" if change_pct and change_pct > 0 else "negative" if change_pct and change_pct < 0 else ""
         change_sign = "+" if change_pct and change_pct > 0 else ""
+        change_display = f"{change_sign}{change_pct}% (7d)" if change_pct is not None else "—"
 
         commodity_blocks += f"""
         <div class="commodity-card">
@@ -457,7 +501,7 @@ def render_html(
                 </div>
                 <div class="commodity-price">
                     <span class="price-current">${ps.get('current', '—')}</span>
-                    <span class="price-change {change_class}">{change_sign}{change_pct}% (7d)</span>
+                    <span class="price-change {change_class}">{change_display}</span>
                 </div>
             </div>
 
@@ -483,7 +527,6 @@ def render_html(
             </div>
         </div>"""
 
-    # Escape narrative newlines for HTML
     narrative_html = "".join(
         f"<p>{para.strip()}</p>"
         for para in narrative.split("\n\n")
@@ -495,7 +538,7 @@ def render_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Morning Market <em>Breakdown</em> — {date_str}</title>
+    <title>Morning Market Breakdown — {date_str}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;1,8..60,300&display=swap" rel="stylesheet">
@@ -739,7 +782,6 @@ def render_html(
         .price-change.positive {{ color: var(--green); }}
         .price-change.negative {{ color: var(--red); }}
 
-        /* Sparkline canvas */
         .sparkline {{
             width: 100%;
             height: 60px;
@@ -747,7 +789,6 @@ def render_html(
             display: block;
         }}
 
-        /* Sentiment row */
         .sentiment-row {{
             display: flex;
             align-items: stretch;
@@ -792,7 +833,6 @@ def render_html(
             color: var(--text-muted);
         }}
 
-        /* Headlines */
         .headlines-section {{
             border-top: 1px solid var(--border);
             padding-top: 1rem;
@@ -842,7 +882,6 @@ def render_html(
             font-style: italic;
         }}
 
-        /* ── Footer ── */
         footer {{
             border-top: 1px solid var(--border);
             padding: 2rem clamp(1.5rem, 5vw, 4rem);
@@ -869,27 +908,6 @@ def render_html(
             text-align: right;
         }}
 
-        /* ── No digest state ── */
-        .no-digest {{
-            text-align: center;
-            padding: 6rem 2rem;
-        }}
-
-        .no-digest h2 {{
-            font-family: 'Playfair Display', serif;
-            font-size: 1.8rem;
-            color: var(--text-muted);
-            margin-bottom: 1rem;
-        }}
-
-        .no-digest p {{
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            letter-spacing: 0.1em;
-        }}
-
-        /* ── Scrollbar ── */
         ::-webkit-scrollbar {{ width: 4px; }}
         ::-webkit-scrollbar-track {{ background: var(--bg); }}
         ::-webkit-scrollbar-thumb {{ background: var(--border-2); }}
@@ -904,7 +922,7 @@ def render_html(
     </div>
     <div class="masthead">
         <div class="masthead-eyebrow">Morning Edition</div>
-        <h1>The Daily <em>Energy</em><br>Jerkoff</h1>
+        <h1>Morning Market <em>Breakdown</em></h1>
         <div class="masthead-sub">Unfiltered energy markets intelligence for serious investors</div>
         <div class="masthead-date">{date_str} · Published 06:15 PST</div>
     </div>
@@ -927,17 +945,16 @@ def render_html(
 
 <footer>
     <div class="footer-left">
-        THE Morning Market <em>Breakdown</em><br>
+        MORNING MARKET BREAKDOWN<br>
         PUBLISHED DAILY AT 06:15 PST
     </div>
     <div class="footer-disclaimer">
         For informational purposes only. Not financial advice.
-        All data sourced from AlphaVantage. Past performance is not indicative of future results.
+        All data sourced from public market feeds. Past performance is not indicative of future results.
     </div>
 </footer>
 
 <script>
-// Draw sparklines on each canvas
 document.querySelectorAll('.sparkline').forEach(canvas => {{
     const values = JSON.parse(canvas.dataset.values || '[]');
     if (!values.length) return;
@@ -956,12 +973,9 @@ document.querySelectorAll('.sparkline').forEach(canvas => {{
     const x = (i) => pad + (i / (values.length - 1)) * (W - pad * 2);
     const y = (v) => H - pad - ((v - min) / range) * (H - pad * 2);
 
-    // Fill
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     const isUp = values[values.length - 1] >= values[0];
-    const upColor = 'rgba(34,197,94,';
-    const dnColor = 'rgba(239,68,68,';
-    const base = isUp ? upColor : dnColor;
+    const base = isUp ? 'rgba(34,197,94,' : 'rgba(239,68,68,';
     grad.addColorStop(0, base + '0.15)');
     grad.addColorStop(1, base + '0)');
 
@@ -974,7 +988,6 @@ document.querySelectorAll('.sparkline').forEach(canvas => {{
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Line
     ctx.beginPath();
     ctx.moveTo(x(0), y(values[0]));
     values.forEach((v, i) => {{ if (i > 0) ctx.lineTo(x(i), y(v)); }});
@@ -982,7 +995,6 @@ document.querySelectorAll('.sparkline').forEach(canvas => {{
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Current dot
     const last = values.length - 1;
     ctx.beginPath();
     ctx.arc(x(last), y(values[last]), 3, 0, Math.PI * 2);
@@ -1032,7 +1044,7 @@ def generate_digest():
     except Exception:
         sec_filings = []
 
-    # 6. LLM narrative (Sonnet)
+    # 6. LLM narrative (Sonnet + web search)
     narrative = generate_narrative(
         price_sentiments, news_sentiments, price_data,
         eia_data=eia_data, sec_filings=sec_filings
