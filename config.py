@@ -1,5 +1,10 @@
 """
 config.py — All source definitions.
+
+LISTING STANDARD:
+  Equities must be purchasable on a US retail brokerage (Robinhood, WeBull).
+  NYSE, NYSE American, and NASDAQ listings are all acceptable, including ADRs
+  and dual-listed foreign companies. OTC Pink Sheet and TSX-only names are excluded.
 """
 
 import os
@@ -65,11 +70,10 @@ ALPHAVANTAGE_SOURCES = [
     # =========================================================
     {"name": "Northern Oil and Gas (NOG)", "query_type": "ticker", "query_value": "NOG", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Comstock Resources (CRK)", "query_type": "ticker", "query_value": "CRK", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
-    {"name": "Tellurian (TELL)", "query_type": "ticker", "query_value": "TELL", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
     {"name": "Genie Energy (GNE)", "query_type": "ticker", "query_value": "GNE", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
     {"name": "W&T Offshore (WTI)", "query_type": "ticker", "query_value": "WTI", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Ring Energy (REI)", "query_type": "ticker", "query_value": "REI", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
-
+    # Removed: TELL (Tellurian) — acquired by Woodside Energy 2023, delisted
 
     # =========================================================
     # OIL & GAS — EXPANDED WATCHLIST (E&P, Royalties, Midstream)
@@ -110,6 +114,7 @@ ALPHAVANTAGE_SOURCES = [
     {"name": "Tamboran Resources (TBN)", "query_type": "ticker", "query_value": "TBN", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["natural_gas", "company_event"], "track_earnings": True, "commodity": "natural_gas"},
     {"name": "Greenfire Resources (GFR)", "query_type": "ticker", "query_value": "GFR", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Granite Ridge Resources (GRNT)", "query_type": "ticker", "query_value": "GRNT", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
+    # Removed: OBE (Obsidian Energy) — OTC Pink only in US (OBELF), not NYSE/NASDAQ
 
     # Royalty & Income names
     {"name": "Black Stone Minerals (BSM)", "query_type": "ticker", "query_value": "BSM", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
@@ -122,11 +127,11 @@ ALPHAVANTAGE_SOURCES = [
     {"name": "TXO Partners (TXO)", "query_type": "ticker", "query_value": "TXO", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "natural_gas", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Evolution Petroleum (EPM)", "query_type": "ticker", "query_value": "EPM", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
     {"name": "Riley Exploration Permian (REPX)", "query_type": "ticker", "query_value": "REPX", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
-    {"name": "Obsidian Energy (OBE)", "query_type": "ticker", "query_value": "OBE", "commodity_group": "oil_gas", "source_type": "equity_news", "credibility_tier": 2, "topics": ["oil", "company_event"], "track_earnings": True, "commodity": "oil"},
 
     # =========================================================
-    # URANIUM — NYSE / NYSE American listed
-    # Non-US listed (ASX, TSX, London) excluded — not in AV
+    # URANIUM — NYSE / NYSE American / NASDAQ listed
+    # Listing standard: US retail brokerage tradeable (Robinhood/WeBull)
+    # ASX, TSX-only, and OTC Pink names excluded
     # =========================================================
     {"name": "Cameco (CCJ)", "query_type": "ticker", "query_value": "CCJ", "commodity_group": "uranium", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
     {"name": "Uranium Energy Corp (UEC)", "query_type": "ticker", "query_value": "UEC", "commodity_group": "uranium", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
@@ -135,9 +140,8 @@ ALPHAVANTAGE_SOURCES = [
     {"name": "NexGen Energy (NXE)", "query_type": "ticker", "query_value": "NXE", "commodity_group": "uranium", "source_type": "equity_news", "credibility_tier": 1, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
     {"name": "Ur-Energy (URG)", "query_type": "ticker", "query_value": "URG", "commodity_group": "uranium", "source_type": "equity_news", "credibility_tier": 2, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
     {"name": "enCore Energy (EU)", "query_type": "ticker", "query_value": "EU", "commodity_group": "uranium", "source_type": "equity_news", "credibility_tier": 2, "topics": ["uranium", "company_event"], "track_earnings": True, "commodity": "uranium"},
-
-    # Note: PDN, DYL, BMN, BOE (ASX), U-U (TSX), KAP (London/Kazakhstan),
-    # CGN (HK), YCA (London) are not available via AlphaVantage.
+    # Excluded: PDN, DYL, BMN, BOE (ASX-primary), U-U (TSX-only),
+    # KAP (London/Kazakhstan), CGN (HK), YCA (London)
 
     # =========================================================
     # TOPIC-BASED — broad market news
@@ -157,10 +161,10 @@ TOPIC_TAXONOMY = ["oil", "natural_gas", "uranium", "nuclear", "macro", "company_
 # Maps commodity_group → benchmark ETF ticker
 # ---------------------------------------------------------------------------
 BASKET_BENCHMARKS = {
-    "oil_gas":      "XOP",   # SPDR S&P Oil & Gas Exploration & Production
-    "uranium":      "URNM",  # Sprott Uranium Miners ETF
-    "gold_miners":  "SGDM",  # Sprott Gold Miners ETF
-    "silver_miners":"SILJ",  # Sprott Junior Silver Miners ETF
-    "copper":       "COPP",  # Sprott Copper Miners ETF
-    "lithium":      "LITP",  # Sprott Lithium Miners ETF
+    "oil_gas":       "XOP",   # SPDR S&P Oil & Gas Exploration & Production
+    "uranium":       "URNM",  # Sprott Uranium Miners ETF
+    "gold_miners":   "SGDM",  # Sprott Gold Miners ETF
+    "silver_miners": "SILJ",  # Sprott Junior Silver Miners ETF
+    "copper":        "COPP",  # Sprott Copper Miners ETF
+    "lithium":       "LITP",  # Sprott Lithium Miners ETF
 }
